@@ -1,0 +1,171 @@
+from __future__ import annotations
+
+import datetime as dt
+from fastapi import FastAPI, Depends, HTTPException, Query, Request, Form
+from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from .config import settings
+from .db import get_session, Base, engine
+from .models import User, BuildRun
+from .schemas import MeResponse, SettingsUpdate, RebuildRequest, StatusItem
+from .security import get_current_user
+from .build import build_for_user
+from .utils.pkce import generate_verifier, challenge_from_verifier
+from .clients.yoto_auth import build_authorize_url, exchange_code_for_token, refresh_access_token
+
+app = FastAPI(title="Today in History API")
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
+templates = Jinja2Templates(directory="templates")
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    # Create tables if not exist (for SQLite demo). In production use Alembic.
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request, session: AsyncSession = Depends(get_session)):
+    # If logged in, load user for template context
+    user = None
+    uid = request.session.get("user_id") if hasattr(request, "session") else None
+    if uid:
+        from uuid import UUID
+
+        try:
+            user = await session.get(User, UUID(uid))
+        except Exception:
+            user = None
+    installed = request.query_params.get("installed") == "1"
+    return templates.TemplateResponse("index.html", {"request": request, "user": user, "installed": installed})
+
+
+@app.get("/install")
+async def install(request: Request):
+    if settings.offline_mode:
+        # Dev shortcut: simulate OAuth success
+        return RedirectResponse(url=f"{settings.app_base_url}/oauth/callback?code=demo&state=demo")
+    verifier = generate_verifier()
+    challenge = challenge_from_verifier(verifier)
+    state = generate_verifier(24)
+    request.session["pkce_verifier"] = verifier
+    request.session["oauth_state"] = state
+    url = build_authorize_url(
+        settings.yoto_client_id or "",
+        settings.yoto_redirect_uri or f"{settings.app_base_url}/oauth/callback",
+        state,
+        challenge,
+    )
+    return RedirectResponse(url=url)
+
+
+@app.get("/oauth/callback")
+async def oauth_callback(request: Request, code: str, state: str, session: AsyncSession = Depends(get_session)):
+    if settings.offline_mode:
+        # Create or use a demo user
+        q = await session.execute(select(User).limit(1))
+        user = q.scalars().first()
+        if not user:
+            user = User()
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        request.session["user_id"] = str(user.id)
+        return RedirectResponse("/?installed=1")
+
+    if state != request.session.get("oauth_state"):
+        raise HTTPException(status_code=400, detail="Invalid state")
+    verifier = request.session.get("pkce_verifier")
+    if not verifier:
+        raise HTTPException(status_code=400, detail="Missing PKCE verifier")
+    tok = await exchange_code_for_token(code, verifier)
+    # Persist or update user with tokens
+    q = await session.execute(select(User).limit(1))
+    user = q.scalars().first()
+    if not user:
+        user = User()
+        session.add(user)
+    user.yoto_access_token = tok.get("access_token")
+    user.yoto_refresh_token = tok.get("refresh_token")
+    expires_in = tok.get("expires_in") or 3600
+    from datetime import datetime, timezone, timedelta
+
+    user.yoto_token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
+    await session.commit()
+    await session.refresh(user)
+    request.session["user_id"] = str(user.id)
+    return RedirectResponse("/?installed=1")
+
+
+@app.get("/me", response_model=MeResponse)
+async def me(user: User = Depends(get_current_user)):
+    return MeResponse(
+        preferred_language=user.preferred_language,
+        timezone=user.timezone,
+        age_min=user.age_min,
+        age_max=user.age_max,
+        card_id=user.card_id,
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request, user: User = Depends(get_current_user)):
+    saved = request.query_params.get("saved") == "1"
+    return templates.TemplateResponse("settings.html", {"request": request, "user": user, "saved": saved})
+
+
+@app.post("/settings")
+async def update_settings(
+    preferred_language: str = Form(...),
+    timezone: str = Form(...),
+    age_min: int = Form(...),
+    age_max: int = Form(...),
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    user.preferred_language = preferred_language
+    user.timezone = timezone
+    user.age_min = age_min
+    user.age_max = age_max
+    await session.commit()
+    return RedirectResponse(url="/settings?saved=1", status_code=303)
+
+
+@app.get("/rebuild")
+async def rebuild_get(
+    date: dt.date | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    date = date or dt.datetime.now(dt.timezone.utc).date()
+    result = await build_for_user(session, user, date)
+    return result
+
+
+@app.post("/rebuild")
+async def rebuild(
+    date: dt.date | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    date = date or dt.datetime.now(dt.timezone.utc).date()
+    result = await build_for_user(session, user, date)
+    return result
+
+
+@app.get("/status", response_model=list[StatusItem])
+async def status(session: AsyncSession = Depends(get_session)):
+    q = await session.execute(select(BuildRun).order_by(BuildRun.created_at.desc()).limit(25))
+    items = []
+    for b in q.scalars().all():
+        items.append(
+            StatusItem(
+                id=str(b.id), user_id=str(b.user_id), date=b.date, status=b.status, error=b.error
+            )
+        )
+    return items

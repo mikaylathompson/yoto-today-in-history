@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Today in History</title>
+    <style>
+      body{font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem;}
+      header, footer{color:#444}
+      nav a{margin-right: 1rem}
+      label{display:block;margin:.5rem 0 .25rem}
+      input, select{padding:.5rem; width:100%; max-width: 20rem}
+      .btn{display:inline-block; padding:.6rem 1rem; background:#111;color:#fff; text-decoration:none; border-radius:.4rem}
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Today in History</h1>
+      <nav>
+        <a href="/">Home</a>
+        <a href="/settings">Settings</a>
+      </nav>
+    </header>
+    <main>
+      {% block content %}{% endblock %}
+    </main>
+    <footer>
+      <p>Powered by Wikimedia, Yoto, and ElevenLabs (via Yoto Labs).</p>
+    </footer>
+  </body>
+  </html>

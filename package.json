@@ -1,0 +1,13 @@
+{
+  "name": "yoto-today-in-history-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pkce": "tsx ts/pkce.ts"
+  },
+  "devDependencies": {
+    "tsx": "4.16.2",
+    "typescript": "5.5.4"
+  }
+}

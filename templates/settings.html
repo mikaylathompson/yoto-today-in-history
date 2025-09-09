@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>Settings</h2>
+  {% if saved %}
+    <p style="background:#e6ffed;border:1px solid #b7eb8f;padding:.75rem;border-radius:.4rem;">Settings saved.</p>
+  {% endif %}
+  <form method="post" action="/settings">
+    <label for="preferred_language">Preferred language</label>
+    <select name="preferred_language" id="preferred_language">
+      <option value="en" {% if user.preferred_language=='en' %}selected{% endif %}>English</option>
+      <option value="es" {% if user.preferred_language=='es' %}selected{% endif %}>Spanish</option>
+      <option value="fr" {% if user.preferred_language=='fr' %}selected{% endif %}>French</option>
+      <option value="de" {% if user.preferred_language=='de' %}selected{% endif %}>German</option>
+    </select>
+
+    <label for="timezone">Timezone (IANA)</label>
+    <input type="text" id="timezone" name="timezone" value="{{ user.timezone }}" placeholder="e.g., Europe/London" />
+
+    <label for="age_min">Min age</label>
+    <input type="number" id="age_min" name="age_min" value="{{ user.age_min }}" min="3" max="18" />
+
+    <label for="age_max">Max age</label>
+    <input type="number" id="age_max" name="age_max" value="{{ user.age_max }}" min="3" max="18" />
+
+    <p><button class="btn" type="submit">Save</button></p>
+  </form>
+{% endblock %}

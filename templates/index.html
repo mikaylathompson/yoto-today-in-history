@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+{% block content %}
+  {% if installed %}
+    <p style="background:#e6ffed;border:1px solid #b7eb8f;padding:.75rem;border-radius:.4rem;">Installation complete. You are signed in.</p>
+  {% endif %}
+
+  {% if user %}
+    <p>You're signed in. Manage your <a href="/settings">Settings</a>, or trigger a build now.</p>
+    <p><a class="btn" href="/rebuild">Rebuild today’s chapter</a></p>
+  {% else %}
+    <p>Install the "Today in History" Yoto card to your account and set your preferences. Builds run daily at 06:00 in your timezone.</p>
+    <p><a class="btn" href="/install">Install with Yoto</a></p>
+    <p>After installing, visit <a href="/settings">Settings</a> to choose language, timezone, and age band.</p>
+  {% endif %}
+{% endblock %}
