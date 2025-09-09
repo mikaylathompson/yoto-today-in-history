@@ -21,6 +21,6 @@ COPY . ./
 # Expose port for Railway
 EXPOSE 8000
 
-ENV ENV=production OFFLINE_MODE=false SESSION_SECRET=change-me
+ENV ENV=production OFFLINE_MODE=false
 
-CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
