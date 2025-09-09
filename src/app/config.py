@@ -19,7 +19,10 @@ class Settings(BaseModel):
     elevenlabs_api_key: str | None = os.getenv("ELEVENLABS_API_KEY")
 
     # OAuth and API endpoints
+    # Token endpoint base (OAuth token/refresh)
     yoto_oauth_base: str = os.getenv("YOTO_OAUTH_BASE", "https://api.yotoplay.com")
+    # Authorization endpoint base (browser redirect)
+    yoto_login_base: str = os.getenv("YOTO_LOGIN_BASE", "https://login.yotoplay.com")
     yoto_content_base: str = os.getenv("YOTO_CONTENT_BASE", "https://api.yotoplay.com")
     yoto_labs_base: str = os.getenv("YOTO_LABS_BASE", "https://labs.api.yotoplay.com")
 

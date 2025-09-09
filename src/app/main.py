@@ -16,6 +16,7 @@ from .security import get_current_user
 from .build import build_for_user
 from .utils.pkce import generate_verifier, challenge_from_verifier
 from .clients.yoto_auth import build_authorize_url, exchange_code_for_token, refresh_access_token
+from .utils.urls import is_valid_absolute_url
 
 app = FastAPI(title="Today in History API")
 app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
@@ -55,9 +56,15 @@ async def install(request: Request):
     state = generate_verifier(24)
     request.session["pkce_verifier"] = verifier
     request.session["oauth_state"] = state
+    # Prefer configured redirect if valid; otherwise derive from request
+    redirect_uri = (
+        settings.yoto_redirect_uri
+        if is_valid_absolute_url(settings.yoto_redirect_uri)
+        else str(request.url_for("oauth_callback"))
+    )
     url = build_authorize_url(
         settings.yoto_client_id or "",
-        settings.yoto_redirect_uri or f"{settings.app_base_url}/oauth/callback",
+        redirect_uri,
         state,
         challenge,
     )

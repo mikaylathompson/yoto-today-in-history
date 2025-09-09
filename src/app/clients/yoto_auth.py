@@ -8,8 +8,8 @@ from ..config import settings
 
 
 def build_authorize_url(client_id: str, redirect_uri: str, state: str, code_challenge: str, scope: str = "openid offline_access") -> str:
-    base = settings.yoto_oauth_base.rstrip("/")
-    # Assumption: authorize endpoint path as below; adjust if docs differ
+    # Yoto examples use https://login.yotoplay.com/authorize for the auth code step
+    base = settings.yoto_login_base.rstrip("/")
     qp = httpx.QueryParams(
         {
             "response_type": "code",
@@ -21,7 +21,7 @@ def build_authorize_url(client_id: str, redirect_uri: str, state: str, code_chal
             "state": state,
         }
     )
-    return f"{base}/oauth/authorize?{qp}"
+    return f"{base}/authorize?{qp}"
 
 
 async def exchange_code_for_token(code: str, code_verifier: str) -> dict:
