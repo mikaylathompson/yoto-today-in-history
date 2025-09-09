@@ -22,7 +22,13 @@ from .utils.urls import is_valid_absolute_url
 
 app = FastAPI(title="Today in History API")
 logger = logging.getLogger("today_in_history")
-app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
+# Harden session cookies in production
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret,
+    https_only=(settings.env == "production"),
+    same_site="lax",
+)
 templates = Jinja2Templates(directory="templates")
 
 
@@ -59,6 +65,7 @@ async def install(request: Request):
     state = generate_verifier(24)
     request.session["pkce_verifier"] = verifier
     request.session["oauth_state"] = state
+    request.session["pkce_challenge"] = challenge
     # Prefer configured redirect if valid; otherwise derive from request
     redirect_uri = (
         settings.yoto_redirect_uri
@@ -71,6 +78,7 @@ async def install(request: Request):
         state,
         challenge,
     )
+    logger.warning("Authorize redirect -> %s (audience=%s, scope=offline_access)", url.split("?")[0], settings.yoto_audience)
     # Persist values we must reuse on callback
     request.session["redirect_uri"] = redirect_uri
     return RedirectResponse(url=url)
@@ -100,6 +108,18 @@ async def oauth_callback(request: Request, code: str, state: str, session: Async
         settings.yoto_redirect_uri if is_valid_absolute_url(settings.yoto_redirect_uri) else str(request.url_for("oauth_callback"))
     )
     try:
+        # Optional PKCE sanity check for diagnostics
+        stored_challenge = request.session.get("pkce_challenge")
+        recomputed = challenge_from_verifier(verifier)
+        if stored_challenge and stored_challenge != recomputed:
+            logger.error("PKCE challenge mismatch: stored != recomputed (lengths %s vs %s)", len(stored_challenge), len(recomputed))
+        logger.warning(
+            "Exchanging code for tokens at %s/oauth/token with redirect_uri=%s (verifier_len=%s, challenge_len=%s)",
+            settings.yoto_oauth_base.rstrip("/"),
+            redirect_uri,
+            len(verifier),
+            len(recomputed),
+        )
         tok = await exchange_code_for_token(code, verifier, redirect_uri)
     except httpx.HTTPStatusError as e:
         logger.exception("Token exchange failed: %s %s", getattr(e.response, 'status_code', '?'), getattr(e.response, 'text', '')[:500])

@@ -41,8 +41,9 @@ async def exchange_code_for_token(code: str, code_verifier: str, redirect_uri: s
         "client_id": settings.yoto_client_id,
         "code_verifier": code_verifier,
     }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(url, data=data)
+        r = await client.post(url, data=data, headers=headers)
         r.raise_for_status()
         tok = r.json()
         # Expected fields: access_token, refresh_token, expires_in
@@ -58,8 +59,9 @@ async def refresh_access_token(refresh_token: str) -> dict:
         "refresh_token": refresh_token,
         "client_id": settings.yoto_client_id,
     }
+    headers = {"Content-Type": "application/x-www-form-urlencoded"}
     async with httpx.AsyncClient(timeout=30) as client:
-        r = await client.post(url, data=data)
+        r = await client.post(url, data=data, headers=headers)
         r.raise_for_status()
         tok = r.json()
         tok["obtained_at"] = int(time.time())
