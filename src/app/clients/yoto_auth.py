@@ -24,13 +24,13 @@ def build_authorize_url(client_id: str, redirect_uri: str, state: str, code_chal
     return f"{base}/authorize?{qp}"
 
 
-async def exchange_code_for_token(code: str, code_verifier: str) -> dict:
+async def exchange_code_for_token(code: str, code_verifier: str, redirect_uri: str) -> dict:
     base = settings.yoto_oauth_base.rstrip("/")
     url = f"{base}/oauth/token"
     data = {
         "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri": settings.yoto_redirect_uri,
+        "redirect_uri": redirect_uri,
         "client_id": settings.yoto_client_id,
         "code_verifier": code_verifier,
     }

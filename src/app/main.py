@@ -71,6 +71,8 @@ async def install(request: Request):
         state,
         challenge,
     )
+    # Persist values we must reuse on callback
+    request.session["redirect_uri"] = redirect_uri
     return RedirectResponse(url=url)
 
 
@@ -94,8 +96,11 @@ async def oauth_callback(request: Request, code: str, state: str, session: Async
     if not verifier:
         raise HTTPException(status_code=400, detail="Missing PKCE verifier")
     # Attempt token exchange; capture detailed error if present
+    redirect_uri = request.session.get("redirect_uri") or (
+        settings.yoto_redirect_uri if is_valid_absolute_url(settings.yoto_redirect_uri) else str(request.url_for("oauth_callback"))
+    )
     try:
-        tok = await exchange_code_for_token(code, verifier)
+        tok = await exchange_code_for_token(code, verifier, redirect_uri)
     except httpx.HTTPStatusError as e:
         logger.exception("Token exchange failed: %s %s", getattr(e.response, 'status_code', '?'), getattr(e.response, 'text', '')[:500])
         return RedirectResponse(url=f"/?oauth_error=token_exchange_failed", status_code=303)
