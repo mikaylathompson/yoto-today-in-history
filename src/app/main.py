@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import datetime as dt
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Form
+import logging
+import httpx
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -19,6 +21,7 @@ from .clients.yoto_auth import build_authorize_url, exchange_code_for_token, ref
 from .utils.urls import is_valid_absolute_url
 
 app = FastAPI(title="Today in History API")
+logger = logging.getLogger("today_in_history")
 app.add_middleware(SessionMiddleware, secret_key=settings.session_secret)
 templates = Jinja2Templates(directory="templates")
 
@@ -90,7 +93,15 @@ async def oauth_callback(request: Request, code: str, state: str, session: Async
     verifier = request.session.get("pkce_verifier")
     if not verifier:
         raise HTTPException(status_code=400, detail="Missing PKCE verifier")
-    tok = await exchange_code_for_token(code, verifier)
+    # Attempt token exchange; capture detailed error if present
+    try:
+        tok = await exchange_code_for_token(code, verifier)
+    except httpx.HTTPStatusError as e:
+        logger.exception("Token exchange failed: %s %s", getattr(e.response, 'status_code', '?'), getattr(e.response, 'text', '')[:500])
+        return RedirectResponse(url=f"/?oauth_error=token_exchange_failed", status_code=303)
+    except Exception:
+        logger.exception("Token exchange failed: unexpected error")
+        return RedirectResponse(url=f"/?oauth_error=token_exchange_failed", status_code=303)
     # Persist or update user with tokens
     q = await session.execute(select(User).limit(1))
     user = q.scalars().first()

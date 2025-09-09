@@ -1,5 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
+  {% if request.query_params.get('oauth_error') %}
+    <p style="background:#fff1f0;border:1px solid #ffa39e;padding:.75rem;border-radius:.4rem;">Sign-in failed during token exchange. Please try again. If this persists, verify your redirect URI in Yoto developer settings matches this site exactly.</p>
+  {% endif %}
+
   {% if installed %}
     <p style="background:#e6ffed;border:1px solid #b7eb8f;padding:.75rem;border-radius:.4rem;">Installation complete. You are signed in.</p>
   {% endif %}
