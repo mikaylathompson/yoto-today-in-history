@@ -7,7 +7,13 @@ import httpx
 from ..config import settings
 
 
-def build_authorize_url(client_id: str, redirect_uri: str, state: str, code_challenge: str, scope: str = "openid offline_access") -> str:
+def build_authorize_url(
+    client_id: str,
+    redirect_uri: str,
+    state: str,
+    code_challenge: str,
+    scope: str = "offline_access",
+) -> str:
     # Yoto examples use https://login.yotoplay.com/authorize for the auth code step
     base = settings.yoto_login_base.rstrip("/")
     qp = httpx.QueryParams(
@@ -15,6 +21,7 @@ def build_authorize_url(client_id: str, redirect_uri: str, state: str, code_chal
             "response_type": "code",
             "client_id": client_id,
             "redirect_uri": redirect_uri,
+            "audience": settings.yoto_audience,
             "scope": scope,
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",

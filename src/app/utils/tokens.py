@@ -14,9 +14,11 @@ async def ensure_yoto_access_token(session: AsyncSession, user: User) -> str | N
     if user.yoto_refresh_token:
         tok = await refresh_access_token(user.yoto_refresh_token)
         user.yoto_access_token = tok.get("access_token")
+        # Replace refresh token (single-use)
+        if tok.get("refresh_token"):
+            user.yoto_refresh_token = tok.get("refresh_token")
         expires_in = tok.get("expires_in") or 3600
         user.yoto_token_expires_at = now + timedelta(seconds=int(expires_in))
         await session.commit()
         return user.yoto_access_token
     return user.yoto_access_token
-

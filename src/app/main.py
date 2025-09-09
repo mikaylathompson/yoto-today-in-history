@@ -121,6 +121,11 @@ async def oauth_callback(request: Request, code: str, state: str, session: Async
     user.yoto_token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
     await session.commit()
     await session.refresh(user)
+    # Clear PKCE verifier from session
+    if "pkce_verifier" in request.session:
+        request.session.pop("pkce_verifier", None)
+    if "oauth_state" in request.session:
+        request.session.pop("oauth_state", None)
     request.session["user_id"] = str(user.id)
     return RedirectResponse("/?installed=1")
 
