@@ -36,10 +36,10 @@ async def upsert_content(
         **({"cardId": card_id} if card_id else {}),
         "title": "Today in History",
         "metadata": {
-            "description": "Kid-friendly history stories updated daily. Sources: Wikipedia (CC BY-SA). Summaries adapted.",
-            "languages": [language],
-            "minAge": age_min,
-            "maxAge": age_max,
+            "description": "Kid-friendly history stories updated daily. Sources: Wikipedia (CC BY-SA). Summaries adapted."
+            # "languages": [language],
+            # "minAge": age_min,
+            # "maxAge": age_max,
         },
         "content": {"chapters": chapters},
     }
