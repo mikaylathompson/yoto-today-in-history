@@ -49,9 +49,9 @@ async def upsert_content(
     logger.info(f"With headers: {headers}")
     logger.info("Full body:")
     print(body) # Keep this print statement
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=90) as client:
         last_err = None
-        for attempt in range(1, 4):
+        for attempt in range(1, 6):
             logger.info(f"POST attempt {attempt}")
             r = await client.post(url, json=body, headers=headers)
             logger.info("Full response:")
@@ -59,7 +59,7 @@ async def upsert_content(
             if r.status_code >= 500:
                 last_err = r
                 logger.error("Labs upsert %s: %s (attempt %s)", r.status_code, r.text[:500], attempt)
-                await asyncio.sleep(0.6 * attempt)
+                await asyncio.sleep(0.8 * attempt)
                 continue
             r.raise_for_status()
             return r.json()
