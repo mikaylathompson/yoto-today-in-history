@@ -55,6 +55,18 @@ async def index(request: Request, session: AsyncSession = Depends(get_session)):
     return templates.TemplateResponse("index.html", {"request": request, "user": user, "installed": installed})
 
 
+@app.get("/auth/test", response_class=HTMLResponse)
+async def auth_test_page(request: Request):
+    return templates.TemplateResponse(
+        "auth_test.html",
+        {
+            "request": request,
+            "client_id": settings.yoto_client_id or "",
+            "audience": settings.yoto_audience,
+        },
+    )
+
+
 @app.get("/install")
 async def install(request: Request):
     if settings.offline_mode:
