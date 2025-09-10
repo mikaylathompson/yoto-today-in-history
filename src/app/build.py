@@ -84,16 +84,44 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
         attrib = attrib_obj.get("attribution", "Sources for today")
         dc.attribution_script = attrib
 
-        # 6–7. Build chapter with ElevenLabs inline text; Labs will render audio
+        # 6–7. Build chapter with intro + stories + attribution using ElevenLabs inline text
         tracks: List[Dict] = []
-        for i, s in enumerate(summaries, start=1):
+        # Intro track first
+        def _intro_text(d: dt.date, lang: str, count: int) -> str:
+            import calendar
+
+            weekday = calendar.day_name[d.weekday()]
+            month = calendar.month_name[d.month]
+            # Day of year
+            start = dt.date(d.year, 1, 1)
+            doy = (d - start).days + 1
+            days_in_year = 366 if calendar.isleap(d.year) else 365
+            remaining = days_in_year - doy
+            return (
+                f"It's {weekday}, {month} {d.day}. Today is day {doy} of {d.year} "
+                f"({remaining} days remaining). Welcome to Today in History!"
+            )
+
+        intro_text = _intro_text(date, user.preferred_language, len(summaries))
+        tracks.append({
+            "key": "01",
+            "type": "elevenlabs",
+            "format": "mp3",
+            "title": f"Welcome for {date.strftime('%B %d')}",
+            "trackUrl": f"text:{intro_text}",
+            "display": {"icon16x16": settings.yoto_icon_16x16},
+        })
+
+        # Story tracks
+        for idx, s in enumerate(summaries, start=2):
             script = s.get("script", "").strip()
             tracks.append({
-                "key": f"{i:02d}",
+                "key": f"{idx:02d}",
                 "type": "elevenlabs",
                 "format": "mp3",
                 "title": s.get("title", "Story"),
                 "trackUrl": f"text:{script}",
+                "display": {"icon16x16": settings.yoto_icon_16x16},
             })
         # Attribution final track
         tracks.append({
@@ -102,12 +130,15 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             "format": "mp3",
             "title": "Sources for today",
             "trackUrl": f"text:{attrib}",
+            "display": {"icon16x16": settings.yoto_icon_16x16},
         })
 
         chapter_today = {
             "key": date.isoformat(),
             "title": date.strftime("%B %d"),
             "tracks": tracks,
+            "overlayLabel": str(date.day),
+            "display": {"icon16x16": settings.yoto_icon_16x16},
         }
 
         # Helper to build a chapter from cached audio refs
@@ -119,7 +150,13 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             for i, a in enumerate(refs[:-1], start=1):
                 trs.append({"key": f"{i:02d}", "type": "stream", "format": "mp3", "title": a["title"], "trackUrl": a["track_url"]})
             trs.append({"key": f"{len(trs)+1:02d}", "type": "stream", "format": "mp3", "title": "Sources for today", "trackUrl": refs[-1]["track_url"]})
-            return {"key": cache.date.isoformat(), "title": cache.date.strftime("%B %d"), "tracks": trs}
+            return {
+                "key": cache.date.isoformat(),
+                "title": cache.date.strftime("%B %d"),
+                "tracks": trs,
+                "overlayLabel": str(cache.date.day),
+                "display": {"icon16x16": settings.yoto_icon_16x16},
+            }
 
         # 8–9. Maintain 7-day window and upsert content
         # Collect today + previous up to 6 days if available

@@ -32,6 +32,11 @@ class Settings(BaseModel):
     yoto_audience: str = os.getenv("YOTO_AUDIENCE", "https://api.yotoplay.com")
     yoto_content_base: str = os.getenv("YOTO_CONTENT_BASE", "https://api.yotoplay.com")
     yoto_labs_base: str = os.getenv("YOTO_LABS_BASE", "https://labs.api.yotoplay.com")
+    yoto_icon_16x16: str = os.getenv(
+        "YOTO_ICON_16X16",
+        # Default to a generic icon id from Yoto examples; override in env if needed
+        "yoto:#4PcvvM5CYc1nmeEHsWJcYcQW1jAbqePuQ97ccWGmPnA",
+    )
 
     # App
     app_base_url: str = os.getenv("APP_BASE_URL", "http://localhost:8000")

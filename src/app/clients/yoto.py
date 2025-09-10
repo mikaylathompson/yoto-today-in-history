@@ -48,8 +48,7 @@ async def upsert_content(
         preview = body.copy()
         chs = preview.get("content", {}).get("chapters", [])
         for ch in chs:
-            for t in ch.get("tracks", [])
-:
+            for t in ch.get("tracks", []):
                 if isinstance(t.get("trackUrl"), str) and t["trackUrl"].startswith("text:"):
                     txt = t["trackUrl"][5:]
                     t["trackUrl"] = "text:" + (txt[:120] + ("…" if len(txt) > 120 else ""))
