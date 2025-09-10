@@ -217,9 +217,18 @@ async def rebuild_get(
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
-    date = date or dt.datetime.now(dt.timezone.utc).date()
-    result = await build_for_user(session, user, date)
-    return result
+    """
+    User-facing rebuild action. On success, redirect to /debug for the built date.
+    On failure, redirect to /debug with an error banner. Avoids exposing raw 500s.
+    """
+    target_date = date or dt.datetime.now(dt.timezone.utc).date()
+    try:
+        await build_for_user(session, user, target_date)
+        return RedirectResponse(url=f"/debug?date={target_date.isoformat()}&built=1", status_code=303)
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Rebuild failed for user=%s date=%s: %s", user.id, target_date, e)
+        # Pass a compact error code; details are in server logs
+        return RedirectResponse(url=f"/debug?date={target_date.isoformat()}&error=build_failed", status_code=303)
 
 
 @app.post("/rebuild")
@@ -361,6 +370,10 @@ async def debug_page(
                 "summaries": None,
                 "date": date,
                 "language": user.preferred_language,
+                "generated_at": None,
+                "status": None,
+                "error": request.query_params.get("error"),
+                "built": request.query_params.get("built") == "1",
             },
         )
 
@@ -368,6 +381,15 @@ async def debug_page(
     summaries_obj = dc.summaries_json or {}
     selection = selection_obj.get("selected") if isinstance(selection_obj, dict) else selection_obj
     summaries = summaries_obj.get("summaries") if isinstance(summaries_obj, dict) else summaries_obj
+
+    # Find latest build run for this user/date for generated_at/status
+    qbr = await session.execute(
+        select(BuildRun)
+        .where(BuildRun.user_id == user.id, BuildRun.date == dc.date)
+        .order_by(desc(BuildRun.created_at))
+        .limit(1)
+    )
+    br = qbr.scalars().first()
 
     return templates.TemplateResponse(
         "debug.html",
@@ -378,5 +400,9 @@ async def debug_page(
             "summaries": summaries or [],
             "date": dc.date.isoformat(),
             "language": dc.language,
+            "generated_at": br.created_at.isoformat() if br else None,
+            "status": br.status if br else None,
+            "error": request.query_params.get("error"),
+            "built": request.query_params.get("built") == "1",
         },
     )

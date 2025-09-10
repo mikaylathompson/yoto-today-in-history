@@ -43,18 +43,10 @@ async def upsert_content(
         },
         "content": {"chapters": chapters},
     }
-    # Log payload (truncated) for Labs debugging
-    try:
-        preview = body.copy()
-        chs = preview.get("content", {}).get("chapters", [])
-        for ch in chs:
-            for t in ch.get("tracks", []):
-                if isinstance(t.get("trackUrl"), str) and t["trackUrl"].startswith("text:"):
-                    txt = t["trackUrl"][5:]
-                    t["trackUrl"] = "text:" + (txt[:120] + ("…" if len(txt) > 120 else ""))
-        logger.info("Upserting via %s with %s chapters; sample=%s", "labs" if use_labs else "api", len(chs), json.dumps(preview)[:500])
-    except Exception:
-        pass
+    logger.info(f"Posting to: {url}")
+    logger.info(f"With headers: {headers}")
+    logger.info("And body:")
+    print(body)
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(url, json=body, headers=headers)
         r.raise_for_status()

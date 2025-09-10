@@ -1,10 +1,19 @@
 {% extends 'base.html' %}
 {% block content %}
   <h2>Debug: Selected Items & Summaries</h2>
-  {% if message %}
+  {% if error %}
+    <p style="background:#fff1f0;border:1px solid #ffa39e;padding:.75rem;border-radius:.4rem;">Build failed. See server logs for details.</p>
+  {% elif built %}
+    <p style="background:#e6ffed;border:1px solid #b7eb8f;padding:.75rem;border-radius:.4rem;">Build completed.</p>
+  {% elif message %}
     <p style="background:#fffbe6;border:1px solid #ffe58f;padding:.75rem;border-radius:.4rem;">{{ message }}</p>
   {% endif %}
-  <p>Date: <strong>{{ date or '—' }}</strong> · Language: <strong>{{ language }}</strong></p>
+  <p>
+    Date: <strong>{{ date or '—' }}</strong>
+    · Language: <strong>{{ language }}</strong>
+    {% if generated_at %}· Generated at: <strong>{{ generated_at }}</strong>{% endif %}
+    {% if status %}· Status: <strong>{{ status }}</strong>{% endif %}
+  </p>
 
   <h3>Selected Items</h3>
   {% if selection and selection|length %}
