@@ -1,5 +1,5 @@
 Write child-friendly audio scripts for Yoto (ages {{age_min}}–{{age_max}}), one per item.
-- Length: 50-100 words each.
+- Length: 50-80 words each.
 - Language: {{language}}.
 - Tone: gentle, curious, encouraging; simple sentences; define big words briefly.
  - Start with a listener-friendly hook, but do not start with "hello" or a similar greeting. End with one short kid-friendly takeaway sentence that ties the idea to kids’ lives. Do not use the exact phrase “What it means:” or any fixed label.

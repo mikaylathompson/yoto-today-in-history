@@ -8,7 +8,7 @@ Goals:
 - Prefer items with clear dates and accessible concepts for children.
 
 Safety rules (hard filters):
-- Exclude explicit violence, sexual content, slurs, hate, self-harm, graphic injury, or sensational detail.
+- Exclude explicit violence, sexual content, slurs, hate, self-harm, graphic injury, or sensational detail, even if framed gently.
 - If war/conflict is historically important, only include if it can be framed gently (no gore, no instructions, no ideology), otherwise skip.
 
 Diversity rules:
