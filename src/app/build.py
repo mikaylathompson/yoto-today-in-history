@@ -99,8 +99,10 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             days_in_year = 366 if calendar.isleap(d.year) else 365
             remaining = days_in_year - doy
             return (
-                f"It's {weekday}, {month} {d.day}. Today is day {doy} of {d.year} "
-                f"({remaining} days remaining). Welcome to Today in History!"
+                f"Welcome to the Today in History playlist! Today is {weekday}, {month} {d.day}.\n"
+                f"There have already been {doy} days in {d.year}, and there are {remaining} days left "
+                "before the end of the year.\nLet's talk about a couple cool things that have happened on "
+                f"{month} {d.day} throughout history. Enjoy!"
             )
 
         intro_text = _intro_text(date, user.preferred_language, len(summaries))
@@ -109,7 +111,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             "type": "elevenlabs",
             "format": "mp3",
             "title": f"Welcome for {date.strftime('%B %d')}",
-            "trackUrl": f"text:{intro_text}",
+            "trackUrl": intro_text,
             "display": {"icon16x16": settings.yoto_icon_16x16},
         })
 
@@ -121,7 +123,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
                 "type": "elevenlabs",
                 "format": "mp3",
                 "title": s.get("title", "Story"),
-                "trackUrl": f"text:{script}",
+                "trackUrl": script,
                 "display": {"icon16x16": settings.yoto_icon_16x16},
             })
         # Attribution final track
@@ -130,7 +132,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             "type": "elevenlabs",
             "format": "mp3",
             "title": "Sources for today",
-            "trackUrl": f"text:{attrib}",
+            "trackUrl": "That's all the stories we have for today. Thanks to you for listening and " + attrib,
             "display": {"icon16x16": settings.yoto_icon_16x16},
         })
 
@@ -182,7 +184,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             chapters,
             use_labs=True,
         )
-        if not user.card_id and result.get("cardId"):
+        if result.get("cardId") and result.get("cardId") != user.card_id:
             user.card_id = result["cardId"]
             await session.commit()
 
