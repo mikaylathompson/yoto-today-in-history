@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from typing import List, Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +18,8 @@ from .clients.tts import synthesize_track
 from .clients.yoto import upsert_content
 from .utils.tokens import ensure_yoto_access_token
 
+logger = logging.getLogger("today_in_history")
+
 
 async def ensure_daily_cache(session: AsyncSession, date: dt.date, language: str) -> DailyCache:
     q = await session.execute(
@@ -32,6 +35,7 @@ async def ensure_daily_cache(session: AsyncSession, date: dt.date, language: str
 
 
 async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Dict:
+    logger.info("Build start user=%s date=%s lang=%s", user.id, date, user.preferred_language)
     build = BuildRun(user_id=user.id, date=date, status="running")
     session.add(build)
     await session.commit()
@@ -44,6 +48,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
         # 1. Fetch feed
         feed = await wikimedia.fetch_on_this_day(user.preferred_language, date)
         normalized = wikimedia.normalize_feed(feed)
+        logger.info("Fetched feed: %s items (filtered)", len(normalized))
         feed_hash = wikimedia.feed_hash(feed)
 
         # 2. Cache
@@ -59,6 +64,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             age_max=user.age_max,
         )
         selection = selection_obj.get("selected", [])
+        logger.info("Selection chosen: %s items", len(selection))
         dc.selection_json = selection_obj
 
         # 4. Summaries
@@ -70,6 +76,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             age_max=user.age_max,
         )
         summaries = summaries_obj.get("summaries", [])
+        logger.info("Summaries generated: %s items", len(summaries))
         dc.summaries_json = summaries_obj
 
         # 5. Attribution
@@ -91,6 +98,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
         audio_refs.append({"id": "attribution", "title": "Sources for today", "track_url": attrib_audio["trackUrl"]})
         dc.audio_refs_json = audio_refs
         await session.commit()
+        logger.info("TTS rendered: %s tracks (+1 attribution)", len(audio_refs) - 1)
 
         # 7. Assemble chapter
         tracks: List[Dict] = []
@@ -160,9 +168,11 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
 
         build.status = "success"
         await session.commit()
+        logger.info("Build success user=%s date=%s card=%s chapters=%s", user.id, date, user.card_id, len(chapters))
         return {"build_id": str(build.id), "status": build.status, "chapters": chapters}
     except Exception as e:  # noqa: BLE001
         build.status = "failed"
         build.error = str(e)
         await session.commit()
+        logger.exception("Build failed user=%s date=%s: %s", user.id, date, e)
         raise

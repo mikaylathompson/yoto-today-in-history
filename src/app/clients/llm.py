@@ -15,6 +15,10 @@ _BANNED_KEYWORDS = {"gore", "torture", "suicide", "massacre", "sexual"}
 def safe_filter(items: List[dict]) -> List[dict]:
     out = []
     for it in items:
+        # Exclude deaths
+        kind = (it.get('kind') or '').lower()
+        if kind in {"death", "deaths"}:
+            continue
         text = f"{it.get('title','')} {it.get('summary','')}".lower()
         if any(b in text for b in _BANNED_KEYWORDS):
             continue
@@ -33,23 +37,39 @@ def select_items(items: List[dict], min_count: int = 5, max_count: int = 10) -> 
     return selection
 
 
-def summarize_item(it: dict, target_min_words: int = 100) -> Dict:
-    # Offline: simple template; real impl would call OpenAI.
+def _format_year(year):
+    try:
+        y = int(year)
+    except Exception:
+        return None
+    if y < 0:
+        return f"{abs(y)} BCE"
+    return str(y)
+
+
+def summarize_item(it: dict, target_min_words: int = 120) -> Dict:
+    # Improved offline fallback: use the feed summary if available; clean and shape for kids.
+    import re
+
     title = it.get("title") or "Untitled"
-    year = it.get("year") or ""
-    base = f"{title} ({year}). This is a kid-friendly summary adapted from Wikipedia. "
-    # Pad to ~100 words
-    words = base.split()
-    while len(words) < target_min_words:
-        words += ["It", "shares", "what", "happened", "and", "why", "it", "matters", "today."]
-    text = " ".join(words[: max(target_min_words, 100)])
-    reading_time_s = (len(text.split()) + 2) // 3  # ~3 wps
-    return {
-        "id": it.get("id"),
-        "title": title,
-        "script": text,
-        "reading_time_s": reading_time_s,
-    }
+    yr = _format_year(it.get("year"))
+    hook = f"Let's talk about {title}" + (f" ({yr})" if yr else "") + ". "
+    body = (it.get("summary") or "").strip()
+    # Strip URLs and excessive whitespace
+    body = re.sub(r"https?://\S+", "", body)
+    body = re.sub(r"\s+", " ", body)
+    if not body:
+        body = "This story from history is often remembered because it changed how people lived and learned."
+    closing = " What it means: learning from the past helps us be curious, kind, and ready to try new ideas."
+    script = (hook + body).strip()
+    # Trim or extend to a reasonable length
+    words = script.split()
+    if len(words) < target_min_words:
+        script = script + " " + " ".join(["It", "was", "important", "and", "people", "still", "learn", "from", "it", "today."] * 5)
+    # Final clean
+    script = (script + closing).strip()
+    reading_time_s = (len(script.split()) + 2) // 3
+    return {"id": it.get("id"), "title": title, "script": script, "reading_time_s": reading_time_s}
 
 
 def attribution_script(language: str) -> str:

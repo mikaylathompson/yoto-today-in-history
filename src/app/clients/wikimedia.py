@@ -21,7 +21,8 @@ def normalize_item(raw: dict) -> dict:
 
 def normalize_feed(feed: dict) -> List[dict]:
     items: List[dict] = []
-    for key in ["events", "births", "deaths", "holidays"]:
+    # Filter out deaths entirely per requirements
+    for key in ["events", "births", "holidays"]:
         for raw in feed.get(key, []) or []:
             items.append(normalize_item(raw))
     return items
