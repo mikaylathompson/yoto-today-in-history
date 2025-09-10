@@ -8,11 +8,12 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, desc
 
 from .config import settings
 from .db import get_session, Base, engine
 from .models import User, BuildRun
+from .models import DailyCache
 from .schemas import MeResponse, SettingsUpdate, RebuildRequest, StatusItem
 from .security import get_current_user
 from .build import build_for_user
@@ -211,3 +212,66 @@ async def status(session: AsyncSession = Depends(get_session)):
             )
         )
     return items
+
+
+@app.get("/debug", response_class=HTMLResponse)
+async def debug_page(
+    request: Request,
+    date: str | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    # Determine target date
+    target_date: dt.date | None = None
+    if date:
+        try:
+            target_date = dt.date.fromisoformat(date)
+        except ValueError:
+            target_date = None
+
+    dc: DailyCache | None = None
+    if target_date:
+        q = await session.execute(
+            select(DailyCache).where(
+                DailyCache.date == target_date, DailyCache.language == user.preferred_language
+            )
+        )
+        dc = q.scalars().first()
+    else:
+        q = await session.execute(
+            select(DailyCache)
+            .where(DailyCache.language == user.preferred_language)
+            .order_by(desc(DailyCache.date))
+            .limit(1)
+        )
+        dc = q.scalars().first()
+
+    if not dc:
+        return templates.TemplateResponse(
+            "debug.html",
+            {
+                "request": request,
+                "message": "No cached build found yet. Trigger a rebuild first.",
+                "selection": None,
+                "summaries": None,
+                "date": date,
+                "language": user.preferred_language,
+            },
+        )
+
+    selection_obj = dc.selection_json or {}
+    summaries_obj = dc.summaries_json or {}
+    selection = selection_obj.get("selected") if isinstance(selection_obj, dict) else selection_obj
+    summaries = summaries_obj.get("summaries") if isinstance(summaries_obj, dict) else summaries_obj
+
+    return templates.TemplateResponse(
+        "debug.html",
+        {
+            "request": request,
+            "message": None,
+            "selection": selection or [],
+            "summaries": summaries or [],
+            "date": dc.date.isoformat(),
+            "language": dc.language,
+        },
+    )

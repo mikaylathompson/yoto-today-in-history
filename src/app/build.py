@@ -8,7 +8,11 @@ from sqlalchemy import select
 
 from .models import DailyCache, BuildRun, User
 from .clients import wikimedia
-from .clients.llm import select_items, summarize_item, attribution_script
+from .clients.llm import (
+    llm_selection_or_fallback,
+    llm_summaries_or_fallback,
+    llm_attribution_or_fallback,
+)
 from .clients.tts import synthesize_track
 from .clients.yoto import upsert_content
 from .utils.tokens import ensure_yoto_access_token
@@ -46,16 +50,31 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
         dc = await ensure_daily_cache(session, date, user.preferred_language)
         dc.feed_hash = feed_hash
 
-        # 3. Selection
-        selection = select_items(normalized)
-        dc.selection_json = selection
+        # 3. Selection (LLM preferred)
+        selection_obj = llm_selection_or_fallback(
+            normalized,
+            date=date.isoformat(),
+            language=user.preferred_language,
+            age_min=user.age_min,
+            age_max=user.age_max,
+        )
+        selection = selection_obj.get("selected", [])
+        dc.selection_json = selection_obj
 
         # 4. Summaries
-        summaries = [summarize_item(it) for it in selection]
-        dc.summaries_json = summaries
+        summaries_obj = llm_summaries_or_fallback(
+            selection,
+            date=date.isoformat(),
+            language=user.preferred_language,
+            age_min=user.age_min,
+            age_max=user.age_max,
+        )
+        summaries = summaries_obj.get("summaries", [])
+        dc.summaries_json = summaries_obj
 
         # 5. Attribution
-        attrib = attribution_script(user.preferred_language)
+        attrib_obj = llm_attribution_or_fallback(date=date.isoformat(), language=user.preferred_language)
+        attrib = attrib_obj.get("attribution", "Sources for today")
         dc.attribution_script = attrib
 
         # 6. TTS

@@ -1,0 +1,6 @@
+Write a short, child-friendly closing attribution in {{language}} for a Yoto playlist.
+- Credit Wikipedia as the source: "Wikipedia (CC BY-SA)".
+- No URLs. One or two sentences max.
+- Friendly, concise, and age-appropriate.
+
+Output STRICT JSON matching the provided JSON Schema. No prose or markdown.

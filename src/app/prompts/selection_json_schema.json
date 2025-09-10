@@ -1,0 +1,50 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "date": {"type": "string", "format": "date", "description": "Build date in YYYY-MM-DD"},
+    "language": {"type": "string", "description": "ISO 639-1 language code (e.g., en, es)"},
+    "age_band": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": {"type": "integer"},
+        "max": {"type": "integer"}
+      },
+      "required": ["min", "max"]
+    },
+    "selected": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "description": "passthrough from feed item id"},
+          "kind": {"type": "string", "enum": ["event", "birth", "holiday"]},
+          "title": {"type": "string"},
+          "year": {"type": ["integer", "null"]},
+          "page_url": {"type": "string", "format": "uri"},
+          "why_pick": {"type": "string", "description": "kid-interest rationale, 1–2 short sentences"},
+          "notes": {"type": "string", "description": "optional: safety framing or pronunciation hints"}
+        },
+        "required": ["id", "kind", "title", "year", "page_url", "why_pick"]
+      }
+    },
+    "omitted_examples": {
+      "type": "array",
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": {"type": "string"},
+          "reason": {"type": "string"}
+        },
+        "required": ["title", "reason"]
+      }
+    }
+  },
+  "required": ["date", "language", "age_band", "selected"]
+}

@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>Debug: Selected Items & Summaries</h2>
+  {% if message %}
+    <p style="background:#fffbe6;border:1px solid #ffe58f;padding:.75rem;border-radius:.4rem;">{{ message }}</p>
+  {% endif %}
+  <p>Date: <strong>{{ date or '—' }}</strong> · Language: <strong>{{ language }}</strong></p>
+
+  <h3>Selected Items</h3>
+  {% if selection and selection|length %}
+    <ol>
+    {% for it in selection %}
+      <li>
+        <div><strong>{{ it.title }}</strong> {% if it.year %}({{ it.year }}){% endif %} — <em>{{ it.kind }}</em></div>
+        {% if it.why_pick %}<div>{{ it.why_pick }}</div>{% endif %}
+        {% if it.notes %}<div style="color:#555;">Notes: {{ it.notes }}</div>{% endif %}
+      </li>
+    {% endfor %}
+    </ol>
+  {% else %}
+    <p>No selection available.</p>
+  {% endif %}
+
+  <h3>Summaries</h3>
+  {% if summaries and summaries|length %}
+    <ol>
+    {% for s in summaries %}
+      <li>
+        <div><strong>{{ s.title }}</strong> {% if s.year %}({{ s.year }}){% endif %} — <em>{{ s.kind }}</em></div>
+        <pre style="white-space:pre-wrap;background:#f7f7f7;padding:.75rem;border-radius:.4rem;">{{ s.script }}</pre>
+        {% if s.reading_time_s %}<div style="color:#555;">Reading time: ~{{ s.reading_time_s }}s</div>{% endif %}
+      </li>
+    {% endfor %}
+    </ol>
+  {% else %}
+    <p>No summaries available.</p>
+  {% endif %}
+{% endblock %}

@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "date": {"type": "string", "format": "date"},
+    "language": {"type": "string"},
+    "summaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "year": {"type": ["integer", "null"]},
+          "kind": {"type": "string", "enum": ["event", "birth", "holiday"]},
+          "script": {"type": "string"},
+          "reading_time_s": {"type": "integer"}
+        },
+        "required": ["id", "title", "kind", "script", "reading_time_s"]
+      }
+    }
+  },
+  "required": ["date", "language", "summaries"]
+}

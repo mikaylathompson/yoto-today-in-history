@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "date": {"type": "string", "format": "date"},
+    "language": {"type": "string"},
+    "attribution": {"type": "string"}
+  },
+  "required": ["date", "language", "attribution"]
+}

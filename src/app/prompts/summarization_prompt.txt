@@ -1,0 +1,13 @@
+Write child-friendly audio scripts for Yoto (ages {{age_min}}–{{age_max}}), one per item.
+- Length: 100–500 words each.
+- Language: {{language}}.
+- Tone: gentle, curious, encouraging; simple sentences; define big words briefly.
+- Start with a listener-friendly hook. End with a single “What it means” line that ties the idea to kids’ lives.
+- No dates arithmetic (say the year plainly). Avoid sensational detail.
+- If an item involves sensitive topics, use gentle framing (focus on resilience, discovery, learning).
+- Pronunciation hints: if tricky names, add a quick phonetic aside once, e.g., “Tchaikovsky (chuh-KOFF-skee)”.
+- Never invent facts. Use only the title/year/topic context implied; avoid speculation.
+- Absolutely no URLs anywhere. Remove or paraphrase if present.
+- Compute reading_time_s = ceil(word_count / 2.5) and include it for each item.
+
+Output STRICT JSON matching the provided JSON Schema. No prose or markdown.

@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import List, Dict
 
 from ..config import settings
+from .openai_client import (
+    select_with_llm as _select_with_llm,
+    summarize_with_llm as _summarize_with_llm,
+    attribution_with_llm as _attribution_with_llm,
+)
 
 _BANNED_KEYWORDS = {"gore", "torture", "suicide", "massacre", "sexual"}
 
@@ -52,3 +57,40 @@ def attribution_script(language: str) -> str:
         "Thanks for listening! Today’s stories were adapted from Wikipedia "
         "(CC BY-SA). Music and narration powered by Yoto and ElevenLabs."
     )
+
+
+# High-level LLM wrappers (prefer OpenAI when available and not offline)
+def llm_selection_or_fallback(feed_items: List[dict], *, date: str, language: str, age_min: int, age_max: int) -> dict:
+    if not settings.offline_mode and settings.openai_api_key:
+        try:
+            return _select_with_llm(feed_items, date=date, language=language, age_min=age_min, age_max=age_max)
+        except Exception:
+            pass
+    # Fallback
+    sel = select_items(feed_items)
+    return {
+        "date": date,
+        "language": language,
+        "age_band": {"min": age_min, "max": age_max},
+        "selected": sel,
+    }
+
+
+def llm_summaries_or_fallback(selected: List[dict], *, date: str, language: str, age_min: int, age_max: int) -> dict:
+    if not settings.offline_mode and settings.openai_api_key:
+        try:
+            return _summarize_with_llm(selected, date=date, language=language, age_min=age_min, age_max=age_max)
+        except Exception:
+            pass
+    # Fallback one-by-one
+    summaries = [summarize_item(it) for it in selected]
+    return {"date": date, "language": language, "summaries": summaries}
+
+
+def llm_attribution_or_fallback(*, date: str, language: str) -> dict:
+    if not settings.offline_mode and settings.openai_api_key:
+        try:
+            return _attribution_with_llm(date=date, language=language)
+        except Exception:
+            pass
+    return {"date": date, "language": language, "attribution": attribution_script(language)}
