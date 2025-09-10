@@ -84,53 +84,25 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
         attrib = attrib_obj.get("attribution", "Sources for today")
         dc.attribution_script = attrib
 
-        # 6. TTS
-        audio_refs = []
-        success_count = 0
-        for s in summaries:
-            script = s.get("script", "")
-            try:
-                audio = await synthesize_track(
-                    s.get("title", "Story"), script, user.preferred_language, user.yoto_access_token
-                )
-                audio_refs.append({"id": s["id"], "title": s["title"], "track_url": audio["trackUrl"]})
-                success_count += 1
-            except Exception as exc:
-                logger.exception("TTS failed for '%s': %s", s.get("title"), exc)
-                continue
-        # Attribution track
-        attrib_audio = await synthesize_track(
-            "Sources for today", attrib, user.preferred_language, user.yoto_access_token
-        )
-        audio_refs.append({"id": "attribution", "title": "Sources for today", "track_url": attrib_audio["trackUrl"]})
-        dc.audio_refs_json = audio_refs
-        await session.commit()
-        logger.info("TTS rendered: %s/%s tracks (+1 attribution)", success_count, len(summaries))
-        if success_count == 0:
-            raise RuntimeError("No story tracks synthesized; aborting build")
-
-        # 7. Assemble chapter
+        # 6–7. Build chapter with ElevenLabs inline text; Labs will render audio
         tracks: List[Dict] = []
-        for i, a in enumerate(audio_refs[:-1], start=1):
-            tracks.append(
-                {
-                    "key": f"{i:02d}",
-                    "type": "stream",
-                    "format": "mp3",
-                    "title": a["title"],
-                    "trackUrl": a["track_url"],
-                }
-            )
-        # Attribution as final track 10/11
-        tracks.append(
-            {
-                "key": f"{len(tracks)+1:02d}",
-                "type": "stream",
+        for i, s in enumerate(summaries, start=1):
+            script = s.get("script", "").strip()
+            tracks.append({
+                "key": f"{i:02d}",
+                "type": "elevenlabs",
                 "format": "mp3",
-                "title": "Sources for today",
-                "trackUrl": audio_refs[-1]["track_url"],
-            }
-        )
+                "title": s.get("title", "Story"),
+                "trackUrl": f"text:{script}",
+            })
+        # Attribution final track
+        tracks.append({
+            "key": f"{len(tracks)+1:02d}",
+            "type": "elevenlabs",
+            "format": "mp3",
+            "title": "Sources for today",
+            "trackUrl": f"text:{attrib}",
+        })
 
         chapter_today = {
             "key": date.isoformat(),
@@ -170,6 +142,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             user.age_min,
             user.age_max,
             chapters,
+            use_labs=True,
         )
         if not user.card_id and result.get("cardId"):
             user.card_id = result["cardId"]
