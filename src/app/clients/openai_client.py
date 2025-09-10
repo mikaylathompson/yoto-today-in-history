@@ -50,33 +50,30 @@ def select_with_llm(feed_items: List[dict], *, date: str, language: str, age_min
     tpl = _load_text(PROMPTS_DIR / "selection_prompt.txt")
     schema = _load_json(PROMPTS_DIR / "selection_json_schema.json")
     prompt = _format_prompt(tpl, date=date, language=language, age_min=age_min, age_max=age_max)
-    client = _client()
-    # Build content per Responses API format
-    input_blocks = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": prompt},
-                {"type": "input_text", "text": "FEED_ITEMS JSON:"},
-                {"type": "input_text", "text": json.dumps({"feed_items": feed_items})},
-            ],
-        }
-    ]
+    # Embed schema and explicitly forbid echoing input keys
+    schema_text = json.dumps(schema)
+    full_prompt = (
+        f"{prompt}\n\nJSON_SCHEMA (strict, no extra keys):\n{schema_text}\n\n"
+        "Output rules:\n- Output a single JSON object matching the schema.\n"
+        "- Do NOT include 'feed_items' or any keys not present in the schema.\n"
+        "- No commentary or markdown.\n\n"
+        f"Context FEED_ITEMS (read-only):\n{json.dumps({'feed_items': feed_items})}\n"
+    )
     resp_client = _client()
     _ensure_responses_available(resp_client)
     resp = resp_client.responses.create(
         model="gpt-4o-mini",
-        input=input_blocks,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "selection", "schema": schema, "strict": True},
-        },
+        input=[{"role": "user", "content": [{"type": "input_text", "text": full_prompt}]}],
         temperature=0.4,
     )
     text = getattr(resp, "output_text", "")
-    data = json.loads(text)
-    jsonschema_validate(data, schema)
-    return data
+    try:
+        data = json.loads(text)
+        jsonschema_validate(data, schema)
+        return data
+    except Exception as e:
+        logger.warning("Selection JSON validation failed: %s; raw=%.500s", e, text)
+        raise
 
 
 def _strip_urls(text: str) -> str:
@@ -89,29 +86,26 @@ def summarize_with_llm(selected: List[dict], *, date: str, language: str, age_mi
     tpl = _load_text(PROMPTS_DIR / "summarization_prompt.txt")
     schema = _load_json(PROMPTS_DIR / "summarization_json_schema.json")
     prompt = _format_prompt(tpl, date=date, language=language, age_min=age_min, age_max=age_max)
-    client = _client()
-    input_blocks = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "input_text", "text": prompt},
-                {"type": "input_text", "text": json.dumps({"selected": selected})},
-            ],
-        }
-    ]
+    schema_text = json.dumps(schema)
+    full_prompt = (
+        f"{prompt}\n\nJSON_SCHEMA (strict, no extra keys):\n{schema_text}\n\n"
+        "Output rules:\n- Output a single JSON object matching the schema.\n- No extra properties. No markdown.\n\n"
+        f"SELECTED JSON (read-only):\n{json.dumps({'selected': selected})}\n"
+    )
     resp_client = _client()
     _ensure_responses_available(resp_client)
     resp = resp_client.responses.create(
         model="gpt-4o-mini",
-        input=input_blocks,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "summaries", "schema": schema, "strict": True},
-        },
+        input=[{"role": "user", "content": [{"type": "input_text", "text": full_prompt}]}],
         temperature=0.5,
     )
-    data = json.loads(getattr(resp, "output_text", ""))
-    jsonschema_validate(data, schema)
+    text = getattr(resp, "output_text", "")
+    try:
+        data = json.loads(text)
+        jsonschema_validate(data, schema)
+    except Exception as e:
+        logger.warning("Summaries JSON validation failed: %s; raw=%.500s", e, text)
+        raise
     # Clean URLs and compute reading_time_s if missing
     out_items = []
     for it in data.get("summaries", []):
@@ -129,21 +123,23 @@ def attribution_with_llm(*, date: str, language: str) -> dict:
     tpl = _load_text(PROMPTS_DIR / "attribution_prompt.txt")
     schema = _load_json(PROMPTS_DIR / "attribution_json_schema.json")
     prompt = _format_prompt(tpl, date=date, language=language, age_min=0, age_max=0)
-    client = _client()
-    input_blocks = [
-        {"role": "user", "content": [{"type": "input_text", "text": prompt}]}
-    ]
+    schema_text = json.dumps(schema)
+    full_prompt = (
+        f"{prompt}\n\nJSON_SCHEMA (strict, no extra keys):\n{schema_text}\n\n"
+        "Output rules:\n- Output a single JSON object matching the schema.\n- No extra properties. No markdown.\n"
+    )
     resp_client = _client()
     _ensure_responses_available(resp_client)
     resp = resp_client.responses.create(
         model="gpt-4o-mini",
-        input=input_blocks,
-        response_format={
-            "type": "json_schema",
-            "json_schema": {"name": "attribution", "schema": schema, "strict": True},
-        },
+        input=[{"role": "user", "content": [{"type": "input_text", "text": full_prompt}]}],
         temperature=0.2,
     )
-    data = json.loads(getattr(resp, "output_text", ""))
-    jsonschema_validate(data, schema)
-    return data
+    text = getattr(resp, "output_text", "")
+    try:
+        data = json.loads(text)
+        jsonschema_validate(data, schema)
+        return data
+    except Exception as e:
+        logger.warning("Attribution JSON validation failed: %s; raw=%.500s", e, text)
+        raise

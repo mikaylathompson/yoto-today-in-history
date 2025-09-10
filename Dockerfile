@@ -12,9 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 ENV PATH="/root/.local/bin:${PATH}"
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-COPY requirements.txt ./
-# Install Python deps into system site-packages for slim image
-RUN uv pip install --system -r requirements.txt
+COPY pyproject.toml ./
+# Install Python deps via uv (project mode). Use a virtualenv and invoke with `uv run`.
+RUN uv sync --no-dev
 
 COPY . ./
 
@@ -23,4 +23,4 @@ EXPOSE 8000
 
 ENV ENV=production OFFLINE_MODE=false
 
-CMD ["uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]
+CMD ["uv", "run", "uvicorn", "src.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips", "*"]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Form
 import logging
+import time
 import httpx
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -20,6 +21,12 @@ from .build import build_for_user
 from .utils.pkce import generate_verifier, challenge_from_verifier
 from .clients.yoto_auth import build_authorize_url, exchange_code_for_token, refresh_access_token
 from .utils.urls import is_valid_absolute_url
+from .clients import wikimedia as wm_client
+from .clients.openai_client import (
+    select_with_llm as oi_select,
+    summarize_with_llm as oi_summarize,
+    attribution_with_llm as oi_attribution,
+)
 
 app = FastAPI(title="Today in History API")
 logger = logging.getLogger("today_in_history")
@@ -238,6 +245,79 @@ async def status(session: AsyncSession = Depends(get_session)):
         )
     return items
 
+
+if settings.env == "debug":
+    @app.get("/llm-test")
+    async def llm_test(
+        date: str | None = Query(default=None, description="YYYY-MM-DD"),
+        language: str = Query(default="en"),
+        age_min: int = Query(default=5),
+        age_max: int = Query(default=10),
+    ):
+        """
+        Run the LLM pipeline (selection, summaries, attribution) without Yoto auth or TTS.
+        Enabled only when ENV=debug. Requires OPENAI_API_KEY and OFFLINE_MODE=false for real results.
+        """
+        t0 = time.perf_counter()
+        # Parse date
+        if date:
+            try:
+                d = dt.date.fromisoformat(date)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid date format; expected YYYY-MM-DD")
+        else:
+            d = dt.datetime.now(dt.timezone.utc).date()
+        logger.info("LLM-TEST start date=%s lang=%s ages=%s-%s", d, language, age_min, age_max)
+        # Fetch and normalize feed
+        try:
+            feed = await wm_client.fetch_on_this_day(language, d)
+            items = wm_client.normalize_feed(feed)
+        except Exception as e:
+            logger.exception("LLM-TEST fetch/normalize error: %s", e)
+            raise HTTPException(status_code=502, detail=f"fetch error: {e}")
+        if not items:
+            raise HTTPException(status_code=502, detail="Empty feed from Wikimedia")
+        logger.info("LLM-TEST feed items=%s", len(items))
+
+        # Run LLM stages directly (no fallbacks)
+        try:
+            logger.info("LLM-TEST selection start")
+            sel_obj = oi_select(items, date=d.isoformat(), language=language, age_min=age_min, age_max=age_max)
+        except Exception as e:
+            logger.exception("LLM-TEST selection error: %s", e)
+            raise HTTPException(status_code=500, detail=f"selection error: {e}")
+        selected = sel_obj.get("selected", [])
+        logger.info("LLM-TEST selection ok items=%s", len(selected))
+        try:
+            logger.info("LLM-TEST summaries start items=%s", len(selected))
+            sum_obj = oi_summarize(selected, date=d.isoformat(), language=language, age_min=age_min, age_max=age_max)
+        except Exception as e:
+            logger.exception("LLM-TEST summaries error: %s", e)
+            raise HTTPException(status_code=500, detail=f"summaries error: {e}")
+        try:
+            logger.info("LLM-TEST attribution start")
+            att_obj = oi_attribution(date=d.isoformat(), language=language)
+        except Exception as e:
+            logger.exception("LLM-TEST attribution error: %s", e)
+            raise HTTPException(status_code=500, detail=f"attribution error: {e}")
+
+        elapsed = time.perf_counter() - t0
+        logger.info(
+            "LLM-TEST done date=%s sel=%s summaries=%s attr_len=%s elapsed=%.2fs",
+            d,
+            len(selected),
+            len(sum_obj.get("summaries", []) if isinstance(sum_obj, dict) else []),
+            len(att_obj.get("attribution", "")) if isinstance(att_obj, dict) else 0,
+            elapsed,
+        )
+
+        return {
+            "date": d.isoformat(),
+            "language": language,
+            "selection": sel_obj,
+            "summaries": sum_obj,
+            "attribution": att_obj,
+        }
 
 @app.get("/debug", response_class=HTMLResponse)
 async def debug_page(

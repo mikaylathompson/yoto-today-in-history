@@ -3,8 +3,7 @@
 PY?=python3
 
 setup:
-	uv venv
-	uv pip sync requirements.txt
+	uv sync --extra dev
 
 run:
 	uv run uvicorn src.app.main:app --host 0.0.0.0 --port 8000

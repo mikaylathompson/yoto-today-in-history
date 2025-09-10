@@ -2,6 +2,11 @@ from __future__ import annotations
 
 import os
 from pydantic import BaseModel
+from dotenv import load_dotenv
+
+
+# Load .env early so os.getenv() sees local overrides in dev
+_ = load_dotenv(os.getenv("ENV_FILE", ".env"), override=False)
 
 
 class Settings(BaseModel):
