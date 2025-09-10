@@ -55,16 +55,7 @@ async def index(request: Request, session: AsyncSession = Depends(get_session)):
     return templates.TemplateResponse("index.html", {"request": request, "user": user, "installed": installed})
 
 
-@app.get("/auth/test", response_class=HTMLResponse)
-async def auth_test_page(request: Request):
-    return templates.TemplateResponse(
-        "auth_test.html",
-        {
-            "request": request,
-            "client_id": settings.yoto_client_id or "",
-            "audience": settings.yoto_audience,
-        },
-    )
+# Client-side OAuth test page was temporary and has been removed.
 
 
 @app.get("/install")
@@ -90,7 +81,6 @@ async def install(request: Request):
         state,
         challenge,
     )
-    logger.warning("Authorize redirect -> %s (audience=%s, scope=offline_access)", url.split("?")[0], settings.yoto_audience)
     # Persist values we must reuse on callback
     request.session["redirect_uri"] = redirect_uri
     return RedirectResponse(url=url)
@@ -120,18 +110,10 @@ async def oauth_callback(request: Request, code: str, state: str, session: Async
         settings.yoto_redirect_uri if is_valid_absolute_url(settings.yoto_redirect_uri) else str(request.url_for("oauth_callback"))
     )
     try:
-        # Optional PKCE sanity check for diagnostics
+        # Optional PKCE sanity check (silent)
         stored_challenge = request.session.get("pkce_challenge")
         recomputed = challenge_from_verifier(verifier)
-        if stored_challenge and stored_challenge != recomputed:
-            logger.error("PKCE challenge mismatch: stored != recomputed (lengths %s vs %s)", len(stored_challenge), len(recomputed))
-        logger.warning(
-            "Exchanging code for tokens at %s/oauth/token with redirect_uri=%s (verifier_len=%s, challenge_len=%s)",
-            settings.yoto_oauth_base.rstrip("/"),
-            redirect_uri,
-            len(verifier),
-            len(recomputed),
-        )
+        # Proceed without verbose logging
         tok = await exchange_code_for_token(code, verifier, redirect_uri)
     except httpx.HTTPStatusError as e:
         logger.exception("Token exchange failed: %s %s", getattr(e.response, 'status_code', '?'), getattr(e.response, 'text', '')[:500])

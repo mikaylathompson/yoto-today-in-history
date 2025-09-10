@@ -42,29 +42,9 @@ async def exchange_code_for_token(code: str, code_verifier: str, redirect_uri: s
         "code_verifier": code_verifier,
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
-    print("exchange_code_for_token")
-    print("url: " + url)
-    print("data:")
-    print(data)
-    print("headers:")
-    print(headers)
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(url, data=data, headers=headers)
-        print(r)
-        try:
-            r.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            # Fallback: try api host if primary fails
-            alt_base = "https://api.yotoplay.com"
-            if not primary.startswith(alt_base):
-                r2 = await client.post(f"{alt_base}/oauth/token", data=data, headers=headers)
-                print("Attempting again.")
-                print("url: " + url)
-                r2.raise_for_status()
-                tok = r2.json()
-                tok["obtained_at"] = int(time.time())
-                return tok
-            raise
+        r.raise_for_status()
         tok = r.json()
         # Expected fields: access_token, refresh_token, expires_in
         tok["obtained_at"] = int(time.time())
