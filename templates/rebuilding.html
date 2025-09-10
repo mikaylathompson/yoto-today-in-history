@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 {% block content %}
   <h2>Rebuilding…</h2>
-  <p>Your card is being generated. This usually takes under a minute.</p>
+  <p>Your card is being generated. This usually takes a few minutes.</p>
   <p>Date: <strong>{{ date or 'today' }}</strong></p>
   <div style="margin:1rem 0;">
     <span class="spinner" style="display:inline-block;width:24px;height:24px;border:3px solid #ddd;border-top-color:#111;border-radius:50%;animation:spin 1s linear infinite"></span>
@@ -22,7 +22,7 @@
           return;
         }
       } catch (e) {}
-      setTimeout(check, 1500);
+      setTimeout(check, 4500);
     }
     check();
   </script>
