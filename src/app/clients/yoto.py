@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 import json
 import logging
+import asyncio
 import httpx
 from ..config import settings
 
@@ -37,17 +38,30 @@ async def upsert_content(
         "title": "Today in History",
         "metadata": {
             "description": "Kid-friendly history stories updated daily. Sources: Wikipedia (CC BY-SA). Summaries adapted."
+            # These aren't included in the example, so I'm stripping them out for now.
             # "languages": [language],
             # "minAge": age_min,
             # "maxAge": age_max,
         },
         "content": {"chapters": chapters},
     }
-    logger.info(f"Posting to: {url}")
+    logger.info(f"Sending to: {url}")
     logger.info(f"With headers: {headers}")
-    logger.info("And body:")
-    print(body)
+    logger.info("Full body:")
+    print(body) # Keep this print statement
     async with httpx.AsyncClient(timeout=60) as client:
-        r = await client.post(url, json=body, headers=headers)
-        r.raise_for_status()
-        return r.json()
+        last_err = None
+        for attempt in range(1, 4):
+            logger.info(f"POST attempt {attempt}")
+            r = await client.post(url, json=body, headers=headers)
+            logger.info("Full response:")
+            print(r)
+            if r.status_code >= 500:
+                last_err = r
+                logger.error("Labs upsert %s: %s (attempt %s)", r.status_code, r.text[:500], attempt)
+                await asyncio.sleep(0.6 * attempt)
+                continue
+            r.raise_for_status()
+            return r.json()
+        assert last_err is not None
+        last_err.raise_for_status()

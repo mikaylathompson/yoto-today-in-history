@@ -70,6 +70,13 @@ async def on_startup() -> None:
     # Create tables if not exist (for SQLite demo). In production use Alembic.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Optimize SQLite to reduce locks
+        try:
+            await conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
+            await conn.exec_driver_sql("PRAGMA synchronous=NORMAL;")
+            await conn.exec_driver_sql("PRAGMA temp_store=MEMORY;")
+        except Exception:
+            pass
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -226,7 +233,17 @@ async def rebuild_get(
         await build_for_user(session, user, target_date)
         return RedirectResponse(url=f"/debug?date={target_date.isoformat()}&built=1", status_code=303)
     except Exception as e:  # noqa: BLE001
-        logger.exception("Rebuild failed for user=%s date=%s: %s", user.id, target_date, e)
+        # Make sure the session is clean after failure
+        try:
+            await session.rollback()
+        except Exception:
+            pass
+        uid = None
+        try:
+            uid = str(user.id)
+        except Exception:
+            uid = "unknown"
+        logger.exception("Rebuild failed for user=%s date=%s: %s", uid, target_date, e)
         # Pass a compact error code; details are in server logs
         return RedirectResponse(url=f"/debug?date={target_date.isoformat()}&error=build_failed", status_code=303)
 
