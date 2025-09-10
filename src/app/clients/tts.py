@@ -25,7 +25,20 @@ async def synthesize_track(title: str, text: str, language: str, access_token: s
     base = settings.yoto_labs_base.rstrip("/")
     url = f"{base}/content"
     headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"} if access_token else {"Accept": "application/json"}
-    payload = {"language": language, "segments": [{"title": title, "text": text}]}
+    # Yoto Labs expects a YotoJSON-like envelope
+    payload = {
+        "metadata": {
+            "language": language,
+        },
+        "content": {
+            "segments": [
+                {
+                    "title": title,
+                    "text": text,
+                }
+            ]
+        },
+    }
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(url, json=payload, headers=headers)
         if r.status_code >= 400:
@@ -33,9 +46,10 @@ async def synthesize_track(title: str, text: str, language: str, access_token: s
             logger.error("Yoto Labs TTS error %s: %s", r.status_code, body)
             r.raise_for_status()
         data = r.json()
-        # Assumption: API returns array of segments with trackUrl; support common shapes
+        # Expect trackUrl in content.segments[0].trackUrl, but support common fallbacks
         track_url = (
-            data.get("segments", [{}])[0].get("trackUrl")
+            data.get("content", {}).get("segments", [{}])[0].get("trackUrl")
+            or data.get("segments", [{}])[0].get("trackUrl")
             or data.get("trackUrl")
             or data.get("tracks", [{}])[0].get("trackUrl")
         )
