@@ -14,6 +14,7 @@ from sqlalchemy import select, desc
 
 from .config import settings
 from .db import get_session, Base, engine, SessionLocal
+from uuid import UUID
 from .models import User, BuildRun
 from .models import DailyCache
 from .schemas import MeResponse, SettingsUpdate, RebuildRequest, StatusItem
@@ -226,7 +227,12 @@ async def update_settings(
 
 async def _run_build_background(user_id: str, target_date: dt.date):
     async with SessionLocal() as s:  # type: AsyncSession
-        u = await s.get(User, user_id)
+        try:
+            uid = UUID(user_id)
+        except Exception:
+            logger.error("Background build: invalid user id %s", user_id)
+            return
+        u = await s.get(User, uid)
         if not u:
             logger.error("Background build: user %s not found", user_id)
             return

@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>Rebuilding…</h2>
+  <p>Your card is being generated. This usually takes under a minute.</p>
+  <p>Date: <strong>{{ date or 'today' }}</strong></p>
+  <div style="margin:1rem 0;">
+    <span class="spinner" style="display:inline-block;width:24px;height:24px;border:3px solid #ddd;border-top-color:#111;border-radius:50%;animation:spin 1s linear infinite"></span>
+  </div>
+  <script>
+    const q = new URLSearchParams(window.location.search);
+    const date = q.get('date') || '';
+    async function check() {
+      try {
+        const r = await fetch(`/build_status?${date ? 'date='+encodeURIComponent(date): ''}`);
+        const j = await r.json();
+        if (j.status === 'success') {
+          window.location.replace(`/debug?date=${encodeURIComponent(date)}&built=1`);
+          return;
+        }
+        if (j.status === 'failed' || j.status === 'partial') {
+          window.location.replace(`/debug?date=${encodeURIComponent(date)}&error=build_failed`);
+          return;
+        }
+      } catch (e) {}
+      setTimeout(check, 1500);
+    }
+    check();
+  </script>
+  <style>
+  @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  </style>
+{% endblock %}
