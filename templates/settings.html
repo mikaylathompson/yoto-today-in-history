@@ -1,6 +1,9 @@
 {% extends 'base.html' %}
 {% block content %}
   <h2>Settings</h2>
+  {% if request.query_params.get('first') %}
+    <p style="background:#e6ffed;border:1px solid #b7eb8f;padding:.75rem;border-radius:.4rem;">Welcome! Set your preferences below, then click “Create my card” to generate your Yoto playlist.</p>
+  {% endif %}
   {% if saved %}
     <p style="background:#e6ffed;border:1px solid #b7eb8f;padding:.75rem;border-radius:.4rem;">Settings saved.</p>
   {% endif %}
@@ -24,4 +27,11 @@
 
     <p><button class="btn" type="submit">Save</button></p>
   </form>
+
+  <h3>Next steps</h3>
+  <p>
+    - Click <a class="btn" href="/rebuild">Create my card</a> after saving your settings.<br />
+    - In the Yoto app, go to <strong>Library → Made by You</strong> and look for “Today in History”.<br />
+    - Open the card to play today’s chapter; new chapters arrive daily around 06:00 your time.
+  </p>
 {% endblock %}

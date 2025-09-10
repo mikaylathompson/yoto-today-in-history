@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from fastapi import FastAPI, Depends, HTTPException, Query, Request, Form
+from fastapi import BackgroundTasks
 import logging
 import time
 import httpx
@@ -12,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
 from .config import settings
-from .db import get_session, Base, engine
+from .db import get_session, Base, engine, SessionLocal
 from .models import User, BuildRun
 from .models import DailyCache
 from .schemas import MeResponse, SettingsUpdate, RebuildRequest, StatusItem
@@ -164,9 +165,11 @@ async def oauth_callback(request: Request, code: str, state: str, session: Async
     # Persist or update user with tokens
     q = await session.execute(select(User).limit(1))
     user = q.scalars().first()
+    is_new = False
     if not user:
         user = User()
         session.add(user)
+        is_new = True
     user.yoto_access_token = tok.get("access_token")
     user.yoto_refresh_token = tok.get("refresh_token")
     expires_in = tok.get("expires_in") or 3600
@@ -181,6 +184,9 @@ async def oauth_callback(request: Request, code: str, state: str, session: Async
     if "oauth_state" in request.session:
         request.session.pop("oauth_state", None)
     request.session["user_id"] = str(user.id)
+    if is_new:
+        logger.info("<EVENT> [NEW USER] user_id=%s lang=%s tz=%s", str(user.id), user.preferred_language, user.timezone)
+        return RedirectResponse("/settings?first=1")
     return RedirectResponse("/?installed=1")
 
 
@@ -218,34 +224,47 @@ async def update_settings(
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
+async def _run_build_background(user_id: str, target_date: dt.date):
+    async with SessionLocal() as s:  # type: AsyncSession
+        u = await s.get(User, user_id)
+        if not u:
+            logger.error("Background build: user %s not found", user_id)
+            return
+        try:
+            await build_for_user(s, u, target_date)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Background build failed user=%s date=%s: %s", user_id, target_date, e)
+
+
 @app.get("/rebuild")
 async def rebuild_get(
+    background: BackgroundTasks,
     date: dt.date | None = Query(default=None),
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
     """
-    User-facing rebuild action. On success, redirect to /debug for the built date.
-    On failure, redirect to /debug with an error banner. Avoids exposing raw 500s.
+    Kick off a rebuild asynchronously and redirect to a progress page.
     """
     target_date = date or dt.datetime.now(dt.timezone.utc).date()
-    try:
-        await build_for_user(session, user, target_date)
-        return RedirectResponse(url=f"/debug?date={target_date.isoformat()}&built=1", status_code=303)
-    except Exception as e:  # noqa: BLE001
-        # Make sure the session is clean after failure
-        try:
-            await session.rollback()
-        except Exception:
-            pass
-        uid = None
-        try:
-            uid = str(user.id)
-        except Exception:
-            uid = "unknown"
-        logger.exception("Rebuild failed for user=%s date=%s: %s", uid, target_date, e)
-        # Pass a compact error code; details are in server logs
-        return RedirectResponse(url=f"/debug?date={target_date.isoformat()}&error=build_failed", status_code=303)
+    background.add_task(_run_build_background, str(user.id), target_date)
+    return RedirectResponse(url=f"/rebuilding?date={target_date.isoformat()}", status_code=303)
+
+
+@app.get("/build_status")
+async def build_status(
+    date: dt.date | None = Query(default=None),
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    target_date = date or dt.datetime.now(dt.timezone.utc).date()
+    q = await session.execute(
+        select(BuildRun).where(BuildRun.user_id == user.id, BuildRun.date == target_date).order_by(desc(BuildRun.created_at)).limit(1)
+    )
+    b = q.scalars().first()
+    if not b:
+        return {"status": "none"}
+    return {"status": b.status, "created_at": b.created_at.isoformat(), "id": str(b.id)}
 
 
 @app.post("/rebuild")
@@ -423,3 +442,6 @@ async def debug_page(
             "built": request.query_params.get("built") == "1",
         },
     )
+@app.get("/rebuilding", response_class=HTMLResponse)
+async def rebuilding_page(request: Request, date: str | None = Query(default=None)):
+    return templates.TemplateResponse("rebuilding.html", {"request": request, "date": date})

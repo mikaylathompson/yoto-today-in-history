@@ -6,7 +6,6 @@ Write child-friendly audio scripts for Yoto (ages {{age_min}}–{{age_max}}), on
  - Spend the majority of the summary on the facts, including supplementing from your own knowledge.
 - No dates arithmetic (say the year plainly). Avoid sensational detail.
 - If an item involves sensitive topics, use gentle framing (focus on resilience, discovery, learning).
-- Pronunciation hints: if tricky names, add a quick phonetic aside once, e.g., “Tchaikovsky (chuh-KOFF-skee)”.
 - Never invent facts. Use only the title/year/topic context implied; avoid speculation.
 - Absolutely no URLs anywhere. Remove or paraphrase if present.
 - Compute reading_time_s = ceil(word_count / 2.5) and include it for each item.
