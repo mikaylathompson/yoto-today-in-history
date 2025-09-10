@@ -17,6 +17,7 @@ from .clients.llm import (
 from .clients.tts import synthesize_track
 from .clients.yoto import upsert_content
 from .utils.tokens import ensure_yoto_access_token
+from .config import settings
 
 logger = logging.getLogger("today_in_history")
 
