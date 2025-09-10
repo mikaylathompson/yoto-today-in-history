@@ -9,6 +9,12 @@ from ..config import settings
 logger = logging.getLogger("today_in_history")
 
 
+def _truncate(text: str, max_chars: int = 900) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rsplit(" ", 1)[0] + "…"
+
+
 async def synthesize_track(title: str, text: str, language: str, access_token: str | None) -> Dict:
     """
     Calls Yoto×ElevenLabs via Yoto Labs API to create hosted audio for a single segment.
@@ -24,8 +30,13 @@ async def synthesize_track(title: str, text: str, language: str, access_token: s
 
     base = settings.yoto_labs_base.rstrip("/")
     url = f"{base}/content"
-    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"} if access_token else {"Accept": "application/json"}
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    } if access_token else {"Accept": "application/json", "Content-Type": "application/json"}
     # Yoto Labs expects a YotoJSON-like envelope
+    clipped = _truncate(text, 900)
     payload = {
         "metadata": {
             "language": language,
@@ -34,16 +45,18 @@ async def synthesize_track(title: str, text: str, language: str, access_token: s
             "segments": [
                 {
                     "title": title,
-                    "text": text,
+                    "text": clipped,
                 }
             ]
         },
     }
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(url, json=payload, headers=headers)
+        if r.status_code >= 500:
+            logger.error("Yoto Labs TTS error %s: %s", r.status_code, r.text[:500])
+            r.raise_for_status()
         if r.status_code >= 400:
-            body = r.text[:500]
-            logger.error("Yoto Labs TTS error %s: %s", r.status_code, body)
+            logger.error("Yoto Labs TTS error %s: %s", r.status_code, r.text[:500])
             r.raise_for_status()
         data = r.json()
         # Expect trackUrl in content.segments[0].trackUrl, but support common fallbacks

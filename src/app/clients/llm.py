@@ -63,7 +63,7 @@ def summarize_item(it: dict, target_min_words: int = 120) -> Dict:
     body = re.sub(r"\s+", " ", body)
     if not body:
         body = "This story from history is often remembered because it changed how people lived and learned."
-    closing = " What it means: learning from the past helps us be curious, kind, and ready to try new ideas."
+    closing = " This reminds us to stay curious, be kind, and try new ideas."
     script = (hook + body).strip()
     # Trim or extend to a reasonable length
     words = script.split()

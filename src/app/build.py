@@ -86,15 +86,18 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
 
         # 6. TTS
         audio_refs = []
+        success_count = 0
         for s in summaries:
             script = s.get("script", "")
-            # Clip overly long scripts to avoid TTS payload errors
-            if len(script) > 1800:
-                script = script[:1800] + "…"
-            audio = await synthesize_track(
-                s.get("title", "Story"), script, user.preferred_language, user.yoto_access_token
-            )
-            audio_refs.append({"id": s["id"], "title": s["title"], "track_url": audio["trackUrl"]})
+            try:
+                audio = await synthesize_track(
+                    s.get("title", "Story"), script, user.preferred_language, user.yoto_access_token
+                )
+                audio_refs.append({"id": s["id"], "title": s["title"], "track_url": audio["trackUrl"]})
+                success_count += 1
+            except Exception as exc:
+                logger.exception("TTS failed for '%s': %s", s.get("title"), exc)
+                continue
         # Attribution track
         attrib_audio = await synthesize_track(
             "Sources for today", attrib, user.preferred_language, user.yoto_access_token
@@ -102,7 +105,9 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
         audio_refs.append({"id": "attribution", "title": "Sources for today", "track_url": attrib_audio["trackUrl"]})
         dc.audio_refs_json = audio_refs
         await session.commit()
-        logger.info("TTS rendered: %s tracks (+1 attribution)", len(audio_refs) - 1)
+        logger.info("TTS rendered: %s/%s tracks (+1 attribution)", success_count, len(summaries))
+        if success_count == 0:
+            raise RuntimeError("No story tracks synthesized; aborting build")
 
         # 7. Assemble chapter
         tracks: List[Dict] = []

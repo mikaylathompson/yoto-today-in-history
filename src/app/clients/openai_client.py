@@ -95,9 +95,8 @@ def summarize_with_llm(selected: List[dict], *, date: str, language: str, age_mi
     resp_client = _client()
     _ensure_responses_available(resp_client)
     resp = resp_client.responses.create(
-        model="gpt-4o-mini",
+        model="gpt-5-mini",
         input=[{"role": "user", "content": [{"type": "input_text", "text": full_prompt}]}],
-        temperature=0.5,
     )
     text = getattr(resp, "output_text", "")
     try:
