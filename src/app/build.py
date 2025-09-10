@@ -87,8 +87,12 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
         # 6. TTS
         audio_refs = []
         for s in summaries:
+            script = s.get("script", "")
+            # Clip overly long scripts to avoid TTS payload errors
+            if len(script) > 1800:
+                script = script[:1800] + "…"
             audio = await synthesize_track(
-                s.get("title", "Story"), s["script"], user.preferred_language, user.yoto_access_token
+                s.get("title", "Story"), script, user.preferred_language, user.yoto_access_token
             )
             audio_refs.append({"id": s["id"], "title": s["title"], "track_url": audio["trackUrl"]})
         # Attribution track

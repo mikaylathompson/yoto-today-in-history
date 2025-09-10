@@ -35,6 +35,30 @@ templates = Jinja2Templates(directory="templates")
 
 @app.on_event("startup")
 async def on_startup() -> None:
+    # Configure logging for our app namespace to ensure INFO logs are visible under uvicorn
+    try:
+        level = getattr(logging, (settings.log_level or "INFO").upper(), logging.INFO)
+    except Exception:
+        level = logging.INFO
+    logger.setLevel(level)
+    # Attach a stream handler if none present
+    if not logger.handlers:
+        import sys
+
+        h = logging.StreamHandler(sys.stdout)
+        h.setLevel(level)
+        fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+        h.setFormatter(fmt)
+        logger.addHandler(h)
+        logger.propagate = False
+
+    logger.info(
+        "Startup: env=%s offline_mode=%s openai_key=%s",
+        settings.env,
+        settings.offline_mode,
+        "set" if settings.openai_api_key else "missing",
+    )
+
     # Create tables if not exist (for SQLite demo). In production use Alembic.
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

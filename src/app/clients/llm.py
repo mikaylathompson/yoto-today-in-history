@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from typing import List, Dict
 
+import logging
 from ..config import settings
 from .openai_client import (
     select_with_llm as _select_with_llm,
     summarize_with_llm as _summarize_with_llm,
     attribution_with_llm as _attribution_with_llm,
 )
+
+logger = logging.getLogger("today_in_history")
 
 _BANNED_KEYWORDS = {"gore", "torture", "suicide", "massacre", "sexual"}
 
@@ -84,8 +87,15 @@ def llm_selection_or_fallback(feed_items: List[dict], *, date: str, language: st
     if not settings.offline_mode and settings.openai_api_key:
         try:
             return _select_with_llm(feed_items, date=date, language=language, age_min=age_min, age_max=age_max)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("LLM selection fallback: error from OpenAI: %s", str(e)[:300])
+    else:
+        reason = []
+        if settings.offline_mode:
+            reason.append("offline_mode=true")
+        if not settings.openai_api_key:
+            reason.append("OPENAI_API_KEY missing")
+        logger.warning("LLM selection fallback: %s", ", ".join(reason) or "unknown reason")
     # Fallback
     sel = select_items(feed_items)
     return {
@@ -100,8 +110,15 @@ def llm_summaries_or_fallback(selected: List[dict], *, date: str, language: str,
     if not settings.offline_mode and settings.openai_api_key:
         try:
             return _summarize_with_llm(selected, date=date, language=language, age_min=age_min, age_max=age_max)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("LLM summaries fallback: error from OpenAI: %s", str(e)[:300])
+    else:
+        reason = []
+        if settings.offline_mode:
+            reason.append("offline_mode=true")
+        if not settings.openai_api_key:
+            reason.append("OPENAI_API_KEY missing")
+        logger.warning("LLM summaries fallback: %s", ", ".join(reason) or "unknown reason")
     # Fallback one-by-one
     summaries = [summarize_item(it) for it in selected]
     return {"date": date, "language": language, "summaries": summaries}
@@ -111,6 +128,13 @@ def llm_attribution_or_fallback(*, date: str, language: str) -> dict:
     if not settings.offline_mode and settings.openai_api_key:
         try:
             return _attribution_with_llm(date=date, language=language)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("LLM attribution fallback: error from OpenAI: %s", str(e)[:300])
+    else:
+        reason = []
+        if settings.offline_mode:
+            reason.append("offline_mode=true")
+        if not settings.openai_api_key:
+            reason.append("OPENAI_API_KEY missing")
+        logger.warning("LLM attribution fallback: %s", ", ".join(reason) or "unknown reason")
     return {"date": date, "language": language, "attribution": attribution_script(language)}

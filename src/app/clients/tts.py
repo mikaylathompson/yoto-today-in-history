@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from typing import Dict
 import httpx
+import logging
 
 from ..config import settings
+
+logger = logging.getLogger("today_in_history")
 
 
 async def synthesize_track(title: str, text: str, language: str, access_token: str | None) -> Dict:
@@ -21,11 +24,14 @@ async def synthesize_track(title: str, text: str, language: str, access_token: s
 
     base = settings.yoto_labs_base.rstrip("/")
     url = f"{base}/content"
-    headers = {"Authorization": f"Bearer {access_token}"} if access_token else {}
+    headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"} if access_token else {"Accept": "application/json"}
     payload = {"language": language, "segments": [{"title": title, "text": text}]}
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(url, json=payload, headers=headers)
-        r.raise_for_status()
+        if r.status_code >= 400:
+            body = r.text[:500]
+            logger.error("Yoto Labs TTS error %s: %s", r.status_code, body)
+            r.raise_for_status()
         data = r.json()
         # Assumption: API returns array of segments with trackUrl; support common shapes
         track_url = (
@@ -34,5 +40,6 @@ async def synthesize_track(title: str, text: str, language: str, access_token: s
             or data.get("tracks", [{}])[0].get("trackUrl")
         )
         if not track_url:
+            logger.error("Yoto Labs response missing trackUrl: %s", data)
             raise RuntimeError("Yoto Labs response missing trackUrl")
         return {"title": title, "trackUrl": track_url, "format": "mp3", "type": "stream"}
