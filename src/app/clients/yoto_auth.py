@@ -32,8 +32,8 @@ def build_authorize_url(
 
 
 async def exchange_code_for_token(code: str, code_verifier: str, redirect_uri: str) -> dict:
-    base = settings.yoto_oauth_base.rstrip("/")
-    url = f"{base}/oauth/token"
+    primary = settings.yoto_oauth_base.rstrip("/")
+    url = f"{primary}/oauth/token"
     data = {
         "grant_type": "authorization_code",
         "code": code,
@@ -41,10 +41,30 @@ async def exchange_code_for_token(code: str, code_verifier: str, redirect_uri: s
         "client_id": settings.yoto_client_id,
         "code_verifier": code_verifier,
     }
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
+    print("exchange_code_for_token")
+    print("url: " + url)
+    print("data:")
+    print(data)
+    print("headers:")
+    print(headers)
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(url, data=data, headers=headers)
-        r.raise_for_status()
+        print(r)
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            # Fallback: try api host if primary fails
+            alt_base = "https://api.yotoplay.com"
+            if not primary.startswith(alt_base):
+                r2 = await client.post(f"{alt_base}/oauth/token", data=data, headers=headers)
+                print("Attempting again.")
+                print("url: " + url)
+                r2.raise_for_status()
+                tok = r2.json()
+                tok["obtained_at"] = int(time.time())
+                return tok
+            raise
         tok = r.json()
         # Expected fields: access_token, refresh_token, expires_in
         tok["obtained_at"] = int(time.time())
@@ -59,10 +79,18 @@ async def refresh_access_token(refresh_token: str) -> dict:
         "refresh_token": refresh_token,
         "client_id": settings.yoto_client_id,
     }
-    headers = {"Content-Type": "application/x-www-form-urlencoded"}
+    headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"}
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(url, data=data, headers=headers)
-        r.raise_for_status()
+        try:
+            r.raise_for_status()
+        except httpx.HTTPStatusError:
+            alt_base = "https://api.yotoplay.com"
+            r2 = await client.post(f"{alt_base}/oauth/token", data=data, headers=headers)
+            r2.raise_for_status()
+            tok = r2.json()
+            tok["obtained_at"] = int(time.time())
+            return tok
         tok = r.json()
         tok["obtained_at"] = int(time.time())
         return tok
