@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import List
+import logging
 
 from jsonschema import validate as jsonschema_validate
 from openai import OpenAI
+import openai as _openai_module
 
 from ..config import settings
 
+logger = logging.getLogger("today_in_history")
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
@@ -22,60 +25,25 @@ def _load_json(path: Path) -> dict:
 
 
 def _format_prompt(tpl: str, **kwargs) -> str:
-    return tpl.replace("{{age_min}}", str(kwargs.get("age_min", ""))).replace(
-        "{{age_max}}", str(kwargs.get("age_max", ""))
-    ).replace("{{language}}", kwargs.get("language", "")).replace("{{date}}", kwargs.get("date", ""))
+    return (
+        tpl.replace("{{age_min}}", str(kwargs.get("age_min", "")))
+        .replace("{{age_max}}", str(kwargs.get("age_max", "")))
+        .replace("{{language}}", kwargs.get("language", ""))
+        .replace("{{date}}", kwargs.get("date", ""))
+    )
 
 
 def _client() -> OpenAI:
     return OpenAI(api_key=settings.openai_api_key)
 
 
-def _extract_text_from_responses(resp) -> str:
-    # Responses API helpers
-    try:
-        return resp.output_text  # type: ignore[attr-defined]
-    except Exception:
-        pass
-    try:
-        parts = resp.output[0].content  # type: ignore[attr-defined]
-        for p in parts:
-            if p.get("type") == "output_text":
-                return p.get("text", "")
-    except Exception:
-        pass
-    return ""
-
-
-def _extract_text_from_chat(resp) -> str:
-    try:
-        return resp.choices[0].message.content  # type: ignore[attr-defined]
-    except Exception:
-        return ""
-
-
-def _call_json(client: OpenAI, messages: list[dict], schema: dict | None, temperature: float, model: str) -> str:
-    # Prefer Responses API if available in this SDK; otherwise fall back to Chat Completions
-    if hasattr(client, "responses"):
-        resp = client.responses.create(
-            model=model,
-            input=messages,
-            response_format=(
-                {"type": "json_schema", "json_schema": {"name": "payload", "schema": schema, "strict": True}}
-                if schema
-                else {"type": "json_object"}
-            ),
-            temperature=temperature,
+def _ensure_responses_available(client: OpenAI) -> None:
+    # Enforce using the Responses API rather than silently falling back
+    if not hasattr(client, "responses"):
+        version = getattr(_openai_module, "__version__", "unknown")
+        raise RuntimeError(
+            f"OpenAI SDK does not expose 'responses' API (version={version}). Ensure openai>=1.42 is installed and the container was rebuilt."
         )
-        return _extract_text_from_responses(resp)
-    # Chat Completions fallback
-    resp = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        response_format={"type": "json_object"},
-        temperature=temperature,
-    )
-    return _extract_text_from_chat(resp)
 
 
 def select_with_llm(feed_items: List[dict], *, date: str, language: str, age_min: int, age_max: int) -> dict:
@@ -83,14 +51,29 @@ def select_with_llm(feed_items: List[dict], *, date: str, language: str, age_min
     schema = _load_json(PROMPTS_DIR / "selection_json_schema.json")
     prompt = _format_prompt(tpl, date=date, language=language, age_min=age_min, age_max=age_max)
     client = _client()
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant that outputs strict JSON only."},
+    # Build content per Responses API format
+    input_blocks = [
         {
             "role": "user",
-            "content": f"{prompt}\n\nFEED_ITEMS JSON:\n" + json.dumps({"feed_items": feed_items}),
-        },
+            "content": [
+                {"type": "input_text", "text": prompt},
+                {"type": "input_text", "text": "FEED_ITEMS JSON:"},
+                {"type": "input_text", "text": json.dumps({"feed_items": feed_items})},
+            ],
+        }
     ]
-    text = _call_json(client, messages, schema=schema, temperature=0.4, model="gpt-4o-mini")
+    resp_client = _client()
+    _ensure_responses_available(resp_client)
+    resp = resp_client.responses.create(
+        model="gpt-4o-mini",
+        input=input_blocks,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "selection", "schema": schema, "strict": True},
+        },
+        temperature=0.4,
+    )
+    text = getattr(resp, "output_text", "")
     data = json.loads(text)
     jsonschema_validate(data, schema)
     return data
@@ -107,12 +90,27 @@ def summarize_with_llm(selected: List[dict], *, date: str, language: str, age_mi
     schema = _load_json(PROMPTS_DIR / "summarization_json_schema.json")
     prompt = _format_prompt(tpl, date=date, language=language, age_min=age_min, age_max=age_max)
     client = _client()
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant that outputs strict JSON only."},
-        {"role": "user", "content": f"{prompt}\n\nSELECTED JSON:\n" + json.dumps({"selected": selected})},
+    input_blocks = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt},
+                {"type": "input_text", "text": json.dumps({"selected": selected})},
+            ],
+        }
     ]
-    text = _call_json(client, messages, schema=schema, temperature=0.5, model="gpt-4o-mini")
-    data = json.loads(text)
+    resp_client = _client()
+    _ensure_responses_available(resp_client)
+    resp = resp_client.responses.create(
+        model="gpt-4o-mini",
+        input=input_blocks,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "summaries", "schema": schema, "strict": True},
+        },
+        temperature=0.5,
+    )
+    data = json.loads(getattr(resp, "output_text", ""))
     jsonschema_validate(data, schema)
     # Clean URLs and compute reading_time_s if missing
     out_items = []
@@ -132,11 +130,20 @@ def attribution_with_llm(*, date: str, language: str) -> dict:
     schema = _load_json(PROMPTS_DIR / "attribution_json_schema.json")
     prompt = _format_prompt(tpl, date=date, language=language, age_min=0, age_max=0)
     client = _client()
-    messages = [
-        {"role": "system", "content": "You are a helpful assistant that outputs strict JSON only."},
-        {"role": "user", "content": prompt},
+    input_blocks = [
+        {"role": "user", "content": [{"type": "input_text", "text": prompt}]}
     ]
-    text = _call_json(client, messages, schema=schema, temperature=0.2, model="gpt-4o-mini")
-    data = json.loads(text)
+    resp_client = _client()
+    _ensure_responses_available(resp_client)
+    resp = resp_client.responses.create(
+        model="gpt-4o-mini",
+        input=input_blocks,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {"name": "attribution", "schema": schema, "strict": True},
+        },
+        temperature=0.2,
+    )
+    data = json.loads(getattr(resp, "output_text", ""))
     jsonschema_validate(data, schema)
     return data

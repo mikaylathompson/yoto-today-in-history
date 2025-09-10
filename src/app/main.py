@@ -53,10 +53,11 @@ async def on_startup() -> None:
         logger.propagate = False
 
     logger.info(
-        "Startup: env=%s offline_mode=%s openai_key=%s",
+        "Startup: env=%s offline_mode=%s openai_key=%s openai_version=%s",
         settings.env,
         settings.offline_mode,
         "set" if settings.openai_api_key else "missing",
+        __import__('openai').__version__ if settings.openai_api_key else 'n/a',
     )
 
     # Create tables if not exist (for SQLite demo). In production use Alembic.
