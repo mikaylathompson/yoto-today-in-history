@@ -4,6 +4,7 @@ Output STRICT JSON matching the provided JSON Schema. Do NOT include commentary,
 Goals:
 - Choose 5–10 items that are engaging, diverse across kinds (events, births, holidays), and globally representative.
 - Prefer hopeful, curious, discovery, science, arts, culture, sports. Avoid graphic violence and mature topics.
+- Avoid religious holidays, unless they are extremely major and noteworthy.
 - If an item includes sensitive topics, include a gentle framing suggestion in the "notes" field or skip the item entirely.
 - Prefer items with clear dates and accessible concepts for children.
 
