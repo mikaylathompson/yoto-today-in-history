@@ -1,6 +1,5 @@
 import datetime as dt
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.app.db import Base, engine, SessionLocal
 from src.app.models import User

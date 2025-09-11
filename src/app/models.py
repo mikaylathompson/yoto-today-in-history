@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 from sqlalchemy import (
-    Column,
     String,
     DateTime,
     Integer,

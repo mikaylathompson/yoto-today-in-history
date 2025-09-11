@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import uuid
-from fastapi import Header, HTTPException, status, Depends, Request
+from fastapi import HTTPException, status, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from .db import get_session
 from .models import User

@@ -14,7 +14,6 @@ from .clients.llm import (
     llm_summaries_or_fallback,
     llm_attribution_or_fallback,
 )
-from .clients.tts import synthesize_track
 from .clients.yoto import upsert_content
 from .clients.elevenlabs import synthesize_text as el_synthesize
 from .utils.tokens import ensure_yoto_access_token
@@ -147,7 +146,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             # Generate hosted audio URLs via ElevenLabs API and save to disk to serve
             from .utils.audio_store import path_for_mp3
             save_path, intro_url = path_for_mp3(date, f"Welcome {date.strftime('%B %d')}", 1, age_bucket=user.age_bucket, language=user.preferred_language)
-            data = await el_synthesize(intro_text, title=f"Welcome {date.isoformat()}", save_path=save_path)
+            data = await el_synthesize(intro_text, save_path=save_path)
             if data:
                 tracks.append({
                     "key": "01",
@@ -171,7 +170,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
                 if not use_labs:
                     from .utils.audio_store import path_for_mp3
                     save_path, url = path_for_mp3(date, s.get("title", "Story"), idx, age_bucket=user.age_bucket, language=user.preferred_language)
-                    data = await el_synthesize(script, title=s.get("title", "Story"), save_path=save_path)
+                    data = await el_synthesize(script, save_path=save_path)
                     if data:
                         tracks.append({
                             "key": f"{idx:02d}",
@@ -196,7 +195,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             if not use_labs:
                 from .utils.audio_store import path_for_mp3
                 save_path, url = path_for_mp3(date, "Sources for today", len(tracks)+1, age_bucket=user.age_bucket, language=user.preferred_language)
-                data = await el_synthesize("Thanks for listening! " + attrib, title="Sources for today", save_path=save_path)
+                data = await el_synthesize("Thanks for listening! " + attrib, save_path=save_path)
                 if data:
                     tracks.append({
                         "key": f"{len(tracks)+1:02d}",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional
 
 
 class MeResponse(BaseModel):

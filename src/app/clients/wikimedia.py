@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import datetime as dt
-from typing import Any, Dict, List
+from typing import List
 import httpx
 
 from ..config import settings

@@ -1,4 +1,3 @@
-import datetime as dt
 from src.app.clients import wikimedia
 
 
