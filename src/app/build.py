@@ -16,19 +16,20 @@ from .clients.llm import (
 )
 from .clients.tts import synthesize_track
 from .clients.yoto import upsert_content
+from .clients.elevenlabs import synthesize_text as el_synthesize
 from .utils.tokens import ensure_yoto_access_token
 from .config import settings
 
 logger = logging.getLogger("today_in_history")
 
 
-async def ensure_daily_cache(session: AsyncSession, date: dt.date, language: str) -> DailyCache:
+async def ensure_daily_cache(session: AsyncSession, date: dt.date, language: str, age_bucket: str | None = None) -> DailyCache:
     q = await session.execute(
         select(DailyCache).where(DailyCache.date == date, DailyCache.language == language)
     )
     dc = q.scalars().first()
     if not dc:
-        dc = DailyCache(date=date, language=language)
+        dc = DailyCache(date=date, language=language, age_bucket=age_bucket)
         session.add(dc)
         await session.commit()
         await session.refresh(dc)
@@ -53,7 +54,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
         feed_hash = wikimedia.feed_hash(feed)
 
         # 2. Cache
-        dc = await ensure_daily_cache(session, date, user.preferred_language)
+        dc = await ensure_daily_cache(session, date, user.preferred_language, user.age_bucket)
         dc.feed_hash = feed_hash
 
         # 3. Selection (LLM preferred)
@@ -85,7 +86,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
         attrib = attrib_obj.get("attribution", "Sources for today")
         dc.attribution_script = attrib
 
-        # 6–7. Build chapter with intro + stories + attribution using ElevenLabs inline text
+        # 6–7. Build chapter with either Labs inline text or pre-generated ElevenLabs URLs
         tracks: List[Dict] = []
         # Intro track first
         def _intro_text(d: dt.date, lang: str, count: int) -> str:
@@ -106,35 +107,115 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             )
 
         intro_text = _intro_text(date, user.preferred_language, len(summaries))
-        tracks.append({
-            "key": "01",
-            "type": "elevenlabs",
-            "format": "mp3",
-            "title": f"Welcome for {date.strftime('%B %d')}",
-            "trackUrl": intro_text,
-            "display": {"icon16x16": settings.yoto_icon_16x16},
-        })
 
-        # Story tracks
-        for idx, s in enumerate(summaries, start=2):
-            script = s.get("script", "").strip()
+        def _abs_url(path_or_url: str) -> str:
+            if path_or_url.startswith("http://") or path_or_url.startswith("https://"):
+                return path_or_url
+            # normalize leading slash
+            rel = path_or_url.lstrip("/")
+            return f"{settings.app_base_url.rstrip('/')}/{rel}"
+        use_labs = settings.yoto_use_labs or not settings.elevenlabs_api_key
+        if use_labs:
             tracks.append({
-                "key": f"{idx:02d}",
+                "key": "01",
                 "type": "elevenlabs",
                 "format": "mp3",
-                "title": s.get("title", "Story"),
-                "trackUrl": script,
+                "title": f"Welcome for {date.strftime('%B %d')}",
+                "trackUrl": intro_text,
                 "display": {"icon16x16": settings.yoto_icon_16x16},
             })
-        # Attribution final track
-        tracks.append({
-            "key": f"{len(tracks)+1:02d}",
-            "type": "elevenlabs",
-            "format": "mp3",
-            "title": "Sources for today",
-            "trackUrl": "That's all the stories we have for today. Thanks to you for listening and " + attrib,
-            "display": {"icon16x16": settings.yoto_icon_16x16},
-        })
+            for idx, s in enumerate(summaries, start=2):
+                script = s.get("script", "").strip()
+                tracks.append({
+                    "key": f"{idx:02d}",
+                    "type": "elevenlabs",
+                    "format": "mp3",
+                    "title": s.get("title", "Story"),
+                    "trackUrl": script,
+                    "display": {"icon16x16": settings.yoto_icon_16x16},
+                })
+            # Attribution final track (prepend small friendly line)
+            tracks.append({
+                "key": f"{len(tracks)+1:02d}",
+                "type": "elevenlabs",
+                "format": "mp3",
+                "title": "Sources for today",
+                "trackUrl": "Thanks for listening! " + attrib,
+                "display": {"icon16x16": settings.yoto_icon_16x16},
+            })
+        else:
+            # Generate hosted audio URLs via ElevenLabs API and save to disk to serve
+            from .utils.audio_store import path_for_mp3
+            save_path, intro_url = path_for_mp3(date, f"Welcome {date.strftime('%B %d')}", 1, age_bucket=user.age_bucket, language=user.preferred_language)
+            data = await el_synthesize(intro_text, title=f"Welcome {date.isoformat()}", save_path=save_path)
+            if data:
+                tracks.append({
+                    "key": "01",
+                    "type": "stream",
+                    "format": "mp3",
+                    "title": f"Welcome for {date.strftime('%B %d')}",
+                    "trackUrl": _abs_url(intro_url),
+                })
+            else:
+                use_labs = True
+                tracks.append({
+                    "key": "01",
+                    "type": "elevenlabs",
+                    "format": "mp3",
+                    "title": f"Welcome for {date.strftime('%B %d')}",
+                    "trackUrl": intro_text,
+                    "display": {"icon16x16": settings.yoto_icon_16x16},
+                })
+            for idx, s in enumerate(summaries, start=2):
+                script = s.get("script", "").strip()
+                if not use_labs:
+                    from .utils.audio_store import path_for_mp3
+                    save_path, url = path_for_mp3(date, s.get("title", "Story"), idx, age_bucket=user.age_bucket, language=user.preferred_language)
+                    data = await el_synthesize(script, title=s.get("title", "Story"), save_path=save_path)
+                    if data:
+                        tracks.append({
+                            "key": f"{idx:02d}",
+                            "type": "stream",
+                            "format": "mp3",
+                            "title": s.get("title", "Story"),
+                            "trackUrl": _abs_url(url),
+                        })
+                        continue
+                    else:
+                        use_labs = True
+                # Fallback to Labs inline
+                tracks.append({
+                    "key": f"{idx:02d}",
+                    "type": "elevenlabs",
+                    "format": "mp3",
+                    "title": s.get("title", "Story"),
+                    "trackUrl": script,
+                    "display": {"icon16x16": settings.yoto_icon_16x16},
+                })
+            # Attribution
+            if not use_labs:
+                from .utils.audio_store import path_for_mp3
+                save_path, url = path_for_mp3(date, "Sources for today", len(tracks)+1, age_bucket=user.age_bucket, language=user.preferred_language)
+                data = await el_synthesize("Thanks for listening! " + attrib, title="Sources for today", save_path=save_path)
+                if data:
+                    tracks.append({
+                        "key": f"{len(tracks)+1:02d}",
+                        "type": "stream",
+                        "format": "mp3",
+                        "title": "Sources for today",
+                        "trackUrl": _abs_url(url),
+                    })
+                else:
+                    use_labs = True
+            if use_labs:
+                tracks.append({
+                    "key": f"{len(tracks)+1:02d}",
+                    "type": "elevenlabs",
+                    "format": "mp3",
+                    "title": "Sources for today",
+                    "trackUrl": "Thanks for listening! " + attrib,
+                    "display": {"icon16x16": settings.yoto_icon_16x16},
+                })
 
         chapter_today = {
             "key": date.isoformat(),
@@ -151,8 +232,11 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
                 return {"key": cache.date.isoformat(), "title": cache.date.strftime("%B %d"), "tracks": trs}
             refs = cache.audio_refs_json
             for i, a in enumerate(refs[:-1], start=1):
-                trs.append({"key": f"{i:02d}", "type": "stream", "format": "mp3", "title": a["title"], "trackUrl": a["track_url"]})
-            trs.append({"key": f"{len(trs)+1:02d}", "type": "stream", "format": "mp3", "title": "Sources for today", "trackUrl": refs[-1]["track_url"]})
+                turl = a.get("track_url") or a.get("url") or a.get("trackUrl") or ""
+                trs.append({"key": f"{i:02d}", "type": "stream", "format": "mp3", "title": a["title"], "trackUrl": _abs_url(turl)})
+            last = refs[-1] if refs else {}
+            last_url = (last.get("track_url") or last.get("url") or last.get("trackUrl") or "")
+            trs.append({"key": f"{len(trs)+1:02d}", "type": "stream", "format": "mp3", "title": "Sources for today", "trackUrl": _abs_url(last_url)})
             return {
                 "key": cache.date.isoformat(),
                 "title": cache.date.strftime("%B %d"),
@@ -182,7 +266,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             user.age_min,
             user.age_max,
             chapters,
-            use_labs=True,
+            use_labs=use_labs,
         )
         if result.get("cardId") and result.get("cardId") != user.card_id:
             user.card_id = result["cardId"]

@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% block content %}
+  <h2>TTS Test (ElevenLabs)</h2>
+  {% if message %}
+    <p style="background:#fffbe6;border:1px solid #ffe58f;padding:.75rem;border-radius:.4rem;">{{ message }}</p>
+  {% endif %}
+  <p>Date: <strong>{{ date or '—' }}</strong> · Language: <strong>{{ language }}</strong></p>
+  {% if not has_key %}
+    <p style="background:#fff1f0;border:1px solid #ffa39e;padding:.75rem;border-radius:.4rem;">ELEVENLABS_API_KEY missing. Set it in your .env to use this page.</p>
+  {% endif %}
+
+  {% if mp3_files and mp3_files|length %}
+    <ol id="playlist">
+      {% for t in mp3_files %}
+        {# Accept either pre-saved URL or inline base64 #}
+        {% if t.url %}
+          <li data-url="{{ t.url }}">{{ loop.index }}. {{ t.title }}</li>
+        {% elif t.b64 %}
+          <li data-b64="{{ t.b64 | safe }}">{{ loop.index }}. {{ t.title }}</li>
+        {% else %}
+          <li>{{ loop.index }}. {{ t.title }}</li>
+        {% endif %}
+      {% endfor %}
+    </ol>
+    <audio id="player" controls preload="metadata" style="width:100%"></audio>
+    <div style="margin-top:.5rem;">
+      <button onclick="prev()">Prev</button>
+      <button onclick="play()">Play</button>
+      <button onclick="next()">Next</button>
+    </div>
+    <script>
+      // Helper: base64 string -> Uint8Array
+      function base64ToUint8Array(base64) {
+        const binary = atob(base64);
+        const len = binary.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        return bytes;
+      }
+      // Build items from DOM and play using native <audio> with data URLs
+      const liNodes = Array.from(document.querySelectorAll('#playlist li'));
+      const items = liNodes.map(li => {
+        const b64Raw = li.getAttribute('data-b64') || '';
+        const b64 = b64Raw.replace(/\s+/g, '');
+        const url = li.getAttribute('data-url') || '';
+        if (b64) return { title: li.textContent, type: 'b64', value: b64 };
+        if (url.startsWith('data:audio')) return { title: li.textContent, type: 'b64', value: (url.split(',')[1] || '') };
+        if (url) return { title: li.textContent, type: 'url', value: url };
+        return { title: li.textContent, type: 'none', value: '' };
+      });
+
+      const audio = document.getElementById('player');
+      let objectUrl = null;
+      let index = 0;
+
+      function load(i){
+        index = i;
+        stop();
+        const it = items[index];
+        if (!it) return;
+        if (objectUrl) { try { URL.revokeObjectURL(objectUrl); } catch(e){} objectUrl = null; }
+        if (it.type === 'b64' && it.value) {
+          const bytes = base64ToUint8Array(it.value);
+          const blob = new Blob([bytes], { type: 'audio/mpeg' });
+          objectUrl = URL.createObjectURL(blob);
+          audio.src = objectUrl;
+          audio.load();
+        } else if (it.type === 'url') {
+          audio.src = it.value;
+          audio.load();
+        } else {
+          audio.removeAttribute('src');
+        }
+        highlight();
+        audio.play().catch(()=>{});
+      }
+      function stop(){ try { audio.pause(); } catch(e){} audio.currentTime = 0; }
+      function next(){ load((index+1) % items.length); }
+      function prev(){ load((index-1+items.length) % items.length); }
+      function play(){ if(audio.src) audio.play(); else load(index || 0); }
+      function highlight(){ document.querySelectorAll('#playlist li').forEach((li,idx)=> li.style.fontWeight = idx===index?'bold':'normal'); }
+      audio.addEventListener('ended', next);
+      audio.addEventListener('loadedmetadata', () => { highlight(); });
+      audio.addEventListener('error', () => { alert('Audio failed to load.'); });
+      if (items.length) load(0);
+    </script>
+  {% else %}
+    <p>No tracks to play.</p>
+  {% endif %}
+{% endblock %}

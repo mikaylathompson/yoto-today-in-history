@@ -19,11 +19,12 @@
     <label for="timezone">Timezone (IANA)</label>
     <input type="text" id="timezone" name="timezone" value="{{ user.timezone }}" placeholder="e.g., Europe/London" />
 
-    <label for="age_min">Min age</label>
-    <input type="number" id="age_min" name="age_min" value="{{ user.age_min }}" min="3" max="18" />
-
-    <label for="age_max">Max age</label>
-    <input type="number" id="age_max" name="age_max" value="{{ user.age_max }}" min="3" max="18" />
+    <label for="age_bucket">Age range</label>
+    <select id="age_bucket" name="age_bucket">
+      <option value="2-4" {% if user.age_bucket=='2-4' %}selected{% endif %}>2–4</option>
+      <option value="5-8" {% if user.age_bucket=='5-8' %}selected{% endif %}>5–8</option>
+      <option value="9-12" {% if user.age_bucket=='9-12' %}selected{% endif %}>9–12</option>
+    </select>
 
     <p><button class="btn" type="submit">Save</button></p>
   </form>

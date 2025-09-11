@@ -8,6 +8,8 @@ import time
 import httpx
 from fastapi.responses import RedirectResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from urllib.parse import urlparse
 from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
@@ -17,11 +19,11 @@ from .db import get_session, Base, engine, SessionLocal
 from uuid import UUID
 from .models import User, BuildRun
 from .models import DailyCache
-from .schemas import MeResponse, SettingsUpdate, RebuildRequest, StatusItem
+from .schemas import MeResponse, StatusItem
 from .security import get_current_user
-from .build import build_for_user
+from .build import build_for_user, ensure_daily_cache
 from .utils.pkce import generate_verifier, challenge_from_verifier
-from .clients.yoto_auth import build_authorize_url, exchange_code_for_token, refresh_access_token
+from .clients.yoto_auth import build_authorize_url, exchange_code_for_token
 from .utils.urls import is_valid_absolute_url
 from .clients import wikimedia as wm_client
 from .clients.openai_client import (
@@ -40,6 +42,7 @@ app.add_middleware(
     same_site="lax",
 )
 templates = Jinja2Templates(directory="templates")
+app.mount("/audio", StaticFiles(directory=settings.audio_dir, html=False), name="audio")
 
 
 @app.on_event("startup")
@@ -153,16 +156,16 @@ async def oauth_callback(request: Request, code: str, state: str, session: Async
     )
     try:
         # Optional PKCE sanity check (silent)
-        stored_challenge = request.session.get("pkce_challenge")
-        recomputed = challenge_from_verifier(verifier)
+        _stored_challenge = request.session.get("pkce_challenge")
+        _recomputed = challenge_from_verifier(verifier)
         # Proceed without verbose logging
         tok = await exchange_code_for_token(code, verifier, redirect_uri)
     except httpx.HTTPStatusError as e:
         logger.exception("Token exchange failed: %s %s", getattr(e.response, 'status_code', '?'), getattr(e.response, 'text', '')[:500])
-        return RedirectResponse(url=f"/?oauth_error=token_exchange_failed", status_code=303)
+        return RedirectResponse(url="/?oauth_error=token_exchange_failed", status_code=303)
     except Exception:
         logger.exception("Token exchange failed: unexpected error")
-        return RedirectResponse(url=f"/?oauth_error=token_exchange_failed", status_code=303)
+        return RedirectResponse(url="/?oauth_error=token_exchange_failed", status_code=303)
     # Persist or update user with tokens
     q = await session.execute(select(User).limit(1))
     user = q.scalars().first()
@@ -212,15 +215,22 @@ async def settings_page(request: Request, user: User = Depends(get_current_user)
 async def update_settings(
     preferred_language: str = Form(...),
     timezone: str = Form(...),
-    age_min: int = Form(...),
-    age_max: int = Form(...),
+    age_bucket: str = Form(default="5-8"),
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
     user.preferred_language = preferred_language
     user.timezone = timezone
-    user.age_min = age_min
-    user.age_max = age_max
+    # Update age bucket and keep min/max for compatibility
+    if age_bucket not in ("2-4", "5-8", "9-12"):
+        age_bucket = "5-8"
+    user.age_bucket = age_bucket
+    if age_bucket == "2-4":
+        user.age_min, user.age_max = 2, 4
+    elif age_bucket == "9-12":
+        user.age_min, user.age_max = 9, 12
+    else:
+        user.age_min, user.age_max = 5, 8
     await session.commit()
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
@@ -362,6 +372,18 @@ if settings.env == "debug":
             elapsed,
         )
 
+        # Persist into DailyCache for this date/language
+        try:
+            async with SessionLocal() as s2:  # type: ignore[name-defined]
+                dc = await ensure_daily_cache(s2, d, language)
+                dc.feed_hash = wm_client.feed_hash(feed)
+                dc.selection_json = sel_obj
+                dc.summaries_json = sum_obj
+                dc.attribution_script = att_obj.get("attribution")
+                await s2.commit()
+        except Exception as e:
+            logger.warning("LLM-TEST cache persist failed: %s", e)
+
         return {
             "date": d.isoformat(),
             "language": language,
@@ -369,6 +391,111 @@ if settings.env == "debug":
             "summaries": sum_obj,
             "attribution": att_obj,
         }
+
+    @app.get("/tts-test", response_class=HTMLResponse)
+    async def tts_test(
+        request: Request,
+        date: str | None = Query(default=None),
+        language: str | None = Query(default=None),
+        session: AsyncSession = Depends(get_session),
+    ):
+        """
+        Generate TTS for the latest summaries via ElevenLabs and play them in-browser.
+        Collates tracks into a simple playlist (sequential playback).
+        Requires ENV=debug and ELEVENLABS_API_KEY.
+        """
+        from .clients.elevenlabs import synthesize_text as el_synthesize
+
+        # Resolve target date and language from latest cache if not given
+        target_date: dt.date | None = None
+        if date:
+            try:
+                target_date = dt.date.fromisoformat(date)
+            except ValueError:
+                target_date = None
+        lang = language or "en"
+
+        dc: DailyCache | None = None
+        if target_date:
+            q = await session.execute(
+                select(DailyCache).where(DailyCache.date == target_date, DailyCache.language == lang)
+            )
+            dc = q.scalars().first()
+        else:
+            q = await session.execute(
+                select(DailyCache).where(DailyCache.language == lang).order_by(desc(DailyCache.date)).limit(1)
+            )
+            dc = q.scalars().first()
+        logger.info("TTS-TEST start date_param=%s lang_param=%s cache_found=%s", date, language, bool(dc))
+        summaries: list[dict] | None = None
+        used_date = None
+        used_lang = lang
+        if dc:
+            summaries_obj = dc.summaries_json or {}
+            summaries = summaries_obj.get("summaries") if isinstance(summaries_obj, dict) else summaries_obj
+            used_date = dc.date.isoformat()
+            used_lang = dc.language
+        else:
+            # On-the-fly generation without DB/user auth
+            try:
+                feed = await wm_client.fetch_on_this_day(lang, target_date or dt.datetime.now(dt.timezone.utc).date())
+                items = wm_client.normalize_feed(feed)
+                from .clients.llm import llm_selection_or_fallback, llm_summaries_or_fallback
+
+                sel_obj = llm_selection_or_fallback(items, date=(target_date or dt.datetime.now(dt.timezone.utc).date()).isoformat(), language=lang, age_min=5, age_max=8)
+                sel = sel_obj.get("selected", [])
+                sum_obj = llm_summaries_or_fallback(sel, date=(target_date or dt.datetime.now(dt.timezone.utc).date()).isoformat(), language=lang, age_min=5, age_max=8)
+                summaries = sum_obj.get("summaries", [])
+                used_date = (target_date or dt.datetime.now(dt.timezone.utc).date()).isoformat()
+                logger.info("TTS-TEST generated on-the-fly summaries=%s", len(summaries))
+            except Exception as e:
+                logger.exception("TTS-TEST on-the-fly generation failed: %s", e)
+                return templates.TemplateResponse(
+                    "tts_test.html",
+                    {"request": request, "message": f"Failed to generate summaries: {e}", "date": date, "language": lang, "has_key": bool(settings.elevenlabs_api_key)},
+                )
+        mp3_files: list[dict] = []
+        if not settings.elevenlabs_api_key:
+            return templates.TemplateResponse(
+                "tts_test.html",
+                {"request": request, "message": "ELEVENLABS_API_KEY is missing.", "date": used_date, "language": used_lang, "has_key": False, "mp3_files": []},
+            )
+        # Generate audio files sequentially
+        total = 0
+        ok = 0
+        for idx, s in enumerate(summaries or [], start=1):
+            total += 1
+            script = (s.get("script") or "").strip()
+            title = s.get("title") or "Story"
+            try:
+                # Prefer streaming directly to a file path to avoid memory issues and SDK quirks
+                from .utils.audio_store import path_for_mp3
+                save_path, relative_url = path_for_mp3(
+                    date=dt.date.fromisoformat(used_date) if used_date else dt.datetime.now(dt.timezone.utc).date(),
+                    title=title,
+                    index=idx,
+                    age_bucket=None,
+                    language=used_lang,
+                )
+                await el_synthesize(script, save_path=save_path)
+
+                mp3_files.append({"title": title, "url": relative_url})
+                ok += 1
+            except Exception as e:
+                logger.warning("TTS-TEST ElevenLabs failed for '%s': %s", title, e)
+
+        logger.info("TTS-TEST done ok=%s/%s", ok, total)
+        return templates.TemplateResponse(
+            "tts_test.html",
+            {
+                "request": request,
+                "message": None if mp3_files else "No audio files returned.",
+                "mp3_files": mp3_files,
+                "date": used_date,
+                "language": used_lang,
+                "has_key": True,
+                },
+        )
 
 @app.get("/debug", response_class=HTMLResponse)
 async def debug_page(

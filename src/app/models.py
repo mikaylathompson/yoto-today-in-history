@@ -33,6 +33,7 @@ class User(Base):
     yoto_token_expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime(timezone=True))
     timezone: Mapped[str] = mapped_column(String, default="UTC")
     preferred_language: Mapped[str] = mapped_column(String, default="en")
+    age_bucket: Mapped[str] = mapped_column(String, default="5-8")
     age_min: Mapped[int] = mapped_column(Integer, default=5)
     age_max: Mapped[int] = mapped_column(Integer, default=10)
     card_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -44,11 +45,12 @@ class User(Base):
 
 class DailyCache(Base):
     __tablename__ = "daily_cache"
-    __table_args__ = (UniqueConstraint("date", "language", name="uq_daily_date_lang"),)
+    __table_args__ = (UniqueConstraint("date", "language", "age_bucket", name="uq_daily_date_lang_bucket"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     date: Mapped[dt.date] = mapped_column(Date, index=True)
     language: Mapped[str] = mapped_column(String, index=True)
+    age_bucket: Mapped[str | None] = mapped_column(String, index=True, nullable=True)
     feed_hash: Mapped[str | None] = mapped_column(String, index=True)
     selection_json: Mapped[dict | None] = mapped_column(JSON)
     summaries_json: Mapped[dict | None] = mapped_column(JSON)

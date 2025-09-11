@@ -22,6 +22,8 @@ class Settings(BaseModel):
     yoto_redirect_uri: str | None = os.getenv("YOTO_REDIRECT_URI")
     # ElevenLabs key is not needed when using Yoto Labs API
     elevenlabs_api_key: str | None = os.getenv("ELEVENLABS_API_KEY")
+    elevenlabs_voice_ids: list[str] = os.getenv("ELEVENLABS_VOICE_IDS",
+        "TX3LPaxmHKxFdv7VOQHJ,cgSgspJ2msm6clMCkdW9,FGY2WhTYpPnrIDTdsKH5,JBFqnCBsd6RMkjVDRZzb,IKne3meq5aSn9XLyUdCD").split(",")
 
     # OAuth and API endpoints
     # Token endpoint base (OAuth token/refresh). Default to login host for PKCE/public clients.
@@ -37,6 +39,7 @@ class Settings(BaseModel):
         # Default to a generic icon id from Yoto examples; override in env if needed
         "yoto:#4PcvvM5CYc1nmeEHsWJcYcQW1jAbqePuQ97ccWGmPnA",
     )
+    yoto_use_labs: bool = os.getenv("YOTO_USE_LABS", "true").lower() == "true"
 
     # App
     app_base_url: str = os.getenv("APP_BASE_URL", "http://localhost:8000")
@@ -45,6 +48,10 @@ class Settings(BaseModel):
     )
     log_level: str = os.getenv("LOG_LEVEL", "info")
     session_secret: str = os.getenv("SESSION_SECRET", "dev-secret-change-me")
+
+    # Audio storage
+    audio_dir: str = os.getenv("AUDIO_DIR", "./data/audio")
+    audio_retention_hours: int = int(os.getenv("AUDIO_RETENTION_HOURS", "168"))  # default 7 days
 
 
 settings = Settings()

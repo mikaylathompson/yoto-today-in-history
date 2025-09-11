@@ -1,4 +1,4 @@
-.PHONY: setup run dev test lint format migrate revision
+.PHONY: setup run dev test lint format migrate revision clean-audio
 
 PY?=python3
 
@@ -25,3 +25,6 @@ migrate:
 
 revision:
 	uv run alembic revision -m "auto" --autogenerate
+
+clean-audio:
+	uv run python scripts/cleanup_audio.py --hours $${HOURS:-$$(uv run python - <<<'from src.app.config import settings; print(settings.audio_retention_hours)')}
