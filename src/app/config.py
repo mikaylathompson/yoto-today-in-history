@@ -39,7 +39,7 @@ class Settings(BaseModel):
         # Default to a generic icon id from Yoto examples; override in env if needed
         "yoto:#4PcvvM5CYc1nmeEHsWJcYcQW1jAbqePuQ97ccWGmPnA",
     )
-    yoto_use_labs: bool = os.getenv("YOTO_USE_LABS", "true").lower() == "true"
+    yoto_use_labs: bool = os.getenv("YOTO_USE_LABS", "false").lower() == "true"
 
     # App
     app_base_url: str = os.getenv("APP_BASE_URL", "http://localhost:8000")
