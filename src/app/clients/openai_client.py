@@ -62,9 +62,9 @@ def select_with_llm(feed_items: List[dict], *, date: str, language: str, age_min
     resp_client = _client()
     _ensure_responses_available(resp_client)
     resp = resp_client.responses.create(
-        model="gpt-4o-mini",
+        model="gpt-5-mini",
         input=[{"role": "user", "content": [{"type": "input_text", "text": full_prompt}]}],
-        temperature=0.4,
+        reasoning={ "effort": "low" },
     )
     text = getattr(resp, "output_text", "")
     try:
