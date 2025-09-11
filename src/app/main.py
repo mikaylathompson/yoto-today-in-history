@@ -14,6 +14,8 @@ from starlette.middleware.sessions import SessionMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 
+from .utils.audio_store import ensure_audio_dir
+
 from .config import settings
 from .db import get_session, Base, engine, SessionLocal
 from uuid import UUID
@@ -42,6 +44,7 @@ app.add_middleware(
     same_site="lax",
 )
 templates = Jinja2Templates(directory="templates")
+ensure_audio_dir()
 app.mount("/audio", StaticFiles(directory=settings.audio_dir, html=False), name="audio")
 
 
