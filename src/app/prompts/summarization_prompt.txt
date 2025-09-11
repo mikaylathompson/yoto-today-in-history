@@ -1,7 +1,8 @@
-Write child-friendly audio scripts for Yoto (ages {{age_min}}–{{age_max}}), one per item.
-- Length: 50-80 words each.
+Write child-friendly audio scripts for children describing a historical event, birth, or holiday and the context around it.
+- Length: 50-120 words each.
 - Language: {{language}}.
-- Tone: gentle, curious, encouraging; simple sentences; define big words briefly.
+- IMPORTANT: You are targeting children ages {{age_min}}–{{age_max}}.
+- Tone: gentle, curious, encouraging, knowledgable; simple sentences; define words that are likely to be confusing to this age range or find another way of phrasing the idea. Do not be condescending.
  - Start with a listener-friendly hook, but do not start with "hello" or a similar greeting. End with one short kid-friendly takeaway sentence that ties the idea to kids’ lives. Do not use the exact phrase “What it means:” or any fixed label.
  - Spend the majority of the summary on the facts, including supplementing from your own knowledge.
 - No dates arithmetic (say the year plainly). Avoid sensational detail.
