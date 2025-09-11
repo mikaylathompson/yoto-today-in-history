@@ -37,7 +37,7 @@ class Settings(BaseModel):
     yoto_icon_16x16: str = os.getenv(
         "YOTO_ICON_16X16",
         # Default to a generic icon id from Yoto examples; override in env if needed
-        "yoto:#4PcvvM5CYc1nmeEHsWJcYcQW1jAbqePuQ97ccWGmPnA",
+        "yoto:#LFGuO-YB89xPlqIoQqs06t2JlhhBPAqq05oEhlGPuY8", # happy globe image
     )
     yoto_use_labs: bool = os.getenv("YOTO_USE_LABS", "false").lower() == "true"
 

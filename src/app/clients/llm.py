@@ -124,6 +124,25 @@ def llm_summaries_or_fallback(selected: List[dict], *, date: str, language: str,
     return {"date": date, "language": language, "summaries": summaries}
 
 
+def llm_summarize_one_or_fallback(item: dict, *, date: str, language: str, age_min: int, age_max: int) -> Dict:
+    """Summarize a single selected item using LLM when possible; fallback otherwise."""
+    if not settings.offline_mode and settings.openai_api_key:
+        try:
+            data = _summarize_with_llm([item], date=date, language=language, age_min=age_min, age_max=age_max)
+            summaries = data.get("summaries", []) if isinstance(data, dict) else []
+            return summaries[0] if summaries else summarize_item(item)
+        except Exception as e:
+            logger.warning("LLM summarize-one fallback: error from OpenAI: %s", str(e)[:300])
+    else:
+        reason = []
+        if settings.offline_mode:
+            reason.append("offline_mode=true")
+        if not settings.openai_api_key:
+            reason.append("OPENAI_API_KEY missing")
+        logger.warning("LLM summarize-one fallback: %s", ", ".join(reason) or "unknown reason")
+    return summarize_item(item)
+
+
 def llm_attribution_or_fallback(*, date: str, language: str) -> dict:
     if not settings.offline_mode and settings.openai_api_key:
         try:

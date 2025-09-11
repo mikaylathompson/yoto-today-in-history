@@ -237,7 +237,7 @@ async def update_settings(
     return RedirectResponse(url="/settings?saved=1", status_code=303)
 
 
-async def _run_build_background(user_id: str, target_date: dt.date):
+async def _run_build_background(user_id: str, target_date: dt.date, reset: bool = False):
     async with SessionLocal() as s:  # type: AsyncSession
         try:
             uid = UUID(user_id)
@@ -249,7 +249,7 @@ async def _run_build_background(user_id: str, target_date: dt.date):
             logger.error("Background build: user %s not found", user_id)
             return
         try:
-            await build_for_user(s, u, target_date)
+            await build_for_user(s, u, target_date, reset=reset)
         except Exception as e:  # noqa: BLE001
             logger.exception("Background build failed user=%s date=%s: %s", user_id, target_date, e)
 
@@ -258,6 +258,7 @@ async def _run_build_background(user_id: str, target_date: dt.date):
 async def rebuild_get(
     background: BackgroundTasks,
     date: dt.date | None = Query(default=None),
+    reset: bool = Query(default=False),
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
@@ -265,13 +266,14 @@ async def rebuild_get(
     Kick off a rebuild asynchronously and redirect to a progress page.
     """
     target_date = date or dt.datetime.now(dt.timezone.utc).date()
-    background.add_task(_run_build_background, str(user.id), target_date)
+    background.add_task(_run_build_background, str(user.id), target_date, reset)
     return RedirectResponse(url=f"/rebuilding?date={target_date.isoformat()}", status_code=303)
 
 
 @app.get("/build_status")
 async def build_status(
     date: dt.date | None = Query(default=None),
+    reset: bool = Query(default=False),
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
@@ -288,11 +290,12 @@ async def build_status(
 @app.post("/rebuild")
 async def rebuild(
     date: dt.date | None = Query(default=None),
+    reset: bool = Query(default=False),
     session: AsyncSession = Depends(get_session),
     user: User = Depends(get_current_user),
 ):
     date = date or dt.datetime.now(dt.timezone.utc).date()
-    result = await build_for_user(session, user, date)
+    result = await build_for_user(session, user, date, reset=reset)
     return result
 
 
