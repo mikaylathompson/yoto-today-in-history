@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
 from typing import List, Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ from .clients.yoto import upsert_content
 from .clients.elevenlabs import synthesize_text as el_synthesize
 from .utils.tokens import ensure_yoto_access_token
 from .config import settings
+from .utils.audio_store import path_for_mp3
 
 logger = logging.getLogger("today_in_history")
 
@@ -113,7 +115,10 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             # normalize leading slash
             rel = path_or_url.lstrip("/")
             return f"{settings.app_base_url.rstrip('/')}/{rel}"
-        use_labs = settings.yoto_use_labs or not settings.elevenlabs_api_key
+        # Only use Labs when explicitly enabled. Do not auto-fallback to Labs.
+        use_labs = settings.yoto_use_labs
+        if not use_labs and not settings.elevenlabs_api_key:
+            raise RuntimeError("ELEVENLABS_API_KEY is required when YOTO_USE_LABS=false")
         if use_labs:
             tracks.append({
                 "key": "01",
@@ -144,10 +149,9 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
             })
         else:
             # Generate hosted audio URLs via ElevenLabs API and save to disk to serve
-            from .utils.audio_store import path_for_mp3
             save_path, intro_url = path_for_mp3(date, f"Welcome {date.strftime('%B %d')}", 1, age_bucket=user.age_bucket, language=user.preferred_language)
-            data = await el_synthesize(intro_text, save_path=save_path)
-            if data:
+            await el_synthesize(intro_text, save_path=save_path)
+            if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
                 tracks.append({
                     "key": "01",
                     "type": "stream",
@@ -156,65 +160,35 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date) -> Di
                     "trackUrl": _abs_url(intro_url),
                 })
             else:
-                use_labs = True
-                tracks.append({
-                    "key": "01",
-                    "type": "elevenlabs",
-                    "format": "mp3",
-                    "title": f"Welcome for {date.strftime('%B %d')}",
-                    "trackUrl": intro_text,
-                    "display": {"icon16x16": settings.yoto_icon_16x16},
-                })
+                raise RuntimeError("ElevenLabs synthesis failed for intro and Labs fallback is disabled (YOTO_USE_LABS=false)")
             for idx, s in enumerate(summaries, start=2):
                 script = s.get("script", "").strip()
-                if not use_labs:
-                    from .utils.audio_store import path_for_mp3
-                    save_path, url = path_for_mp3(date, s.get("title", "Story"), idx, age_bucket=user.age_bucket, language=user.preferred_language)
-                    data = await el_synthesize(script, save_path=save_path)
-                    if data:
-                        tracks.append({
-                            "key": f"{idx:02d}",
-                            "type": "stream",
-                            "format": "mp3",
-                            "title": s.get("title", "Story"),
-                            "trackUrl": _abs_url(url),
-                        })
-                        continue
-                    else:
-                        use_labs = True
-                # Fallback to Labs inline
-                tracks.append({
-                    "key": f"{idx:02d}",
-                    "type": "elevenlabs",
-                    "format": "mp3",
-                    "title": s.get("title", "Story"),
-                    "trackUrl": script,
-                    "display": {"icon16x16": settings.yoto_icon_16x16},
-                })
-            # Attribution
-            if not use_labs:
-                from .utils.audio_store import path_for_mp3
-                save_path, url = path_for_mp3(date, "Sources for today", len(tracks)+1, age_bucket=user.age_bucket, language=user.preferred_language)
-                data = await el_synthesize("Thanks for listening! " + attrib, save_path=save_path)
-                if data:
+                save_path, url = path_for_mp3(date, s.get("title", "Story"), idx, age_bucket=user.age_bucket, language=user.preferred_language)
+                await el_synthesize(script, save_path=save_path)
+                if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
                     tracks.append({
-                        "key": f"{len(tracks)+1:02d}",
+                        "key": f"{idx:02d}",
                         "type": "stream",
                         "format": "mp3",
-                        "title": "Sources for today",
+                        "title": s.get("title", "Story"),
                         "trackUrl": _abs_url(url),
                     })
+                    continue
                 else:
-                    use_labs = True
-            if use_labs:
+                    raise RuntimeError("ElevenLabs synthesis failed for a story and Labs fallback is disabled (YOTO_USE_LABS=false)")
+            # Attribution
+            save_path, url = path_for_mp3(date, "Sources for today", len(tracks)+1, age_bucket=user.age_bucket, language=user.preferred_language)
+            await el_synthesize("Thanks for listening! " + attrib, save_path=save_path)
+            if os.path.exists(save_path) and os.path.getsize(save_path) > 0:
                 tracks.append({
                     "key": f"{len(tracks)+1:02d}",
-                    "type": "elevenlabs",
+                    "type": "stream",
                     "format": "mp3",
                     "title": "Sources for today",
-                    "trackUrl": "Thanks for listening! " + attrib,
-                    "display": {"icon16x16": settings.yoto_icon_16x16},
+                    "trackUrl": _abs_url(url),
                 })
+            else:
+                raise RuntimeError("ElevenLabs synthesis failed for attribution and Labs fallback is disabled (YOTO_USE_LABS=false)")
 
         chapter_today = {
             "key": date.isoformat(),
