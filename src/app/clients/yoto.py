@@ -17,6 +17,7 @@ async def request_upload_url(access_token: str) -> Tuple[str, str]:
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
     }
+    logger.info("Yoto: requesting upload URL")
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get(url, headers=headers)
         r.raise_for_status()
@@ -26,6 +27,7 @@ async def request_upload_url(access_token: str) -> Tuple[str, str]:
     upload_id = upload.get("uploadId")
     if not upload_url or not upload_id:
         raise RuntimeError("Failed to get Yoto upload URL")
+    logger.info("Yoto: received upload URL (uploadId=%s)", upload_id)
     return upload_url, upload_id
 
 
@@ -35,8 +37,11 @@ async def put_audio_to_upload_url(upload_url: str, audio_bytes: bytes, content_t
         "Content-Type": content_type,
     }
     # httpx requires content=bytes for PUT to raw URL
+    size = len(audio_bytes or b"")
+    logger.info("Yoto: uploading audio to signed URL filename=%s size=%d content_type=%s", filename, size, content_type)
     async with httpx.AsyncClient(timeout=120) as client:
         r = await client.put(upload_url, content=audio_bytes, headers=headers)
+        logger.info("Yoto: upload complete status=%s", r.status_code)
         r.raise_for_status()
 
 
@@ -48,6 +53,7 @@ async def poll_transcoded(access_token: str, upload_id: str, *, max_attempts: in
         "Authorization": f"Bearer {access_token}",
         "Accept": "application/json",
     }
+    logger.info("Yoto: polling for transcode (uploadId=%s)", upload_id)
     async with httpx.AsyncClient(timeout=20) as client:
         for attempt in range(max_attempts):
             r = await client.get(url, headers=headers)
@@ -55,16 +61,28 @@ async def poll_transcoded(access_token: str, upload_id: str, *, max_attempts: in
                 data = r.json() or {}
                 transcode = data.get("transcode") or {}
                 if transcode.get("transcodedSha256"):
+                    info = transcode.get("transcodedInfo") or {}
+                    logger.info(
+                        "Yoto: transcode ready uploadId=%s sha=%s duration=%s fileSize=%s",
+                        upload_id,
+                        transcode.get("transcodedSha256"),
+                        info.get("duration"),
+                        info.get("fileSize"),
+                    )
                     return transcode
+            if attempt % 5 == 0:
+                logger.debug("Yoto: transcode polling attempt=%d/%d (uploadId=%s)", attempt + 1, max_attempts, upload_id)
             await asyncio.sleep(delay_ms / 1000.0)
     raise TimeoutError("Yoto transcoding timed out")
 
 
 async def upload_audio_and_get_transcode(access_token: str, audio_bytes: bytes, *, content_type: str = "audio/mpeg", filename: str = "audio.mp3") -> Dict:
     """Convenience: request URL, upload audio, poll for transcode; return the transcode object."""
+    logger.info("Yoto: upload+transcode start filename=%s size=%d", filename, len(audio_bytes or b""))
     upload_url, upload_id = await request_upload_url(access_token)
     await put_audio_to_upload_url(upload_url, audio_bytes, content_type, filename)
     transcode = await poll_transcoded(access_token, upload_id)
+    logger.info("Yoto: upload+transcode complete sha=%s", transcode.get("transcodedSha256"))
     return transcode
 
 
@@ -107,6 +125,7 @@ async def upsert_content(
     async with httpx.AsyncClient(timeout=90) as client:
         last_err = None
         for attempt in range(1, 6):
+            logger.info("Yoto: upserting content chapters=%d attempt=%d card=%s", len(chapters), attempt, bool(card_id))
             r = await client.post(url, json=body, headers=headers)
             if r.status_code >= 500:
                 last_err = r
@@ -114,6 +133,8 @@ async def upsert_content(
                 await asyncio.sleep(0.8 * attempt)
                 continue
             r.raise_for_status()
-            return r.json()
+            out = r.json()
+            logger.info("Yoto: upsert success status=%s cardId=%s", r.status_code, (out.get("cardId") if isinstance(out, dict) else None))
+            return out
         assert last_err is not None
         last_err.raise_for_status()

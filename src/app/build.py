@@ -43,7 +43,7 @@ async def ensure_daily_cache(session: AsyncSession, date: dt.date, language: str
 
 
 async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, reset: bool = False) -> Dict:
-    logger.info("Build start user=%s date=%s lang=%s", user.id, date, user.preferred_language)
+    logger.info("Build start user=%s date=%s lang=%s reset=%s", user.id, date, user.preferred_language, reset)
     build = BuildRun(user_id=user.id, date=date, status="running")
     session.add(build)
     await session.commit()
@@ -54,6 +54,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
         await ensure_yoto_access_token(session, user)
 
         # 1. Fetch feed
+        logger.info("Fetch Wikimedia feed date=%s lang=%s", date, user.preferred_language)
         feed = await wikimedia.fetch_on_this_day(user.preferred_language, date)
         normalized = wikimedia.normalize_feed(feed)
         logger.info("Fetched feed: %s items (filtered)", len(normalized))
@@ -63,12 +64,14 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
         dc = await ensure_daily_cache(session, date, user.preferred_language, user.age_bucket)
         if reset:
             # Start fresh for today's audio refs
+            logger.info("Reset requested: clearing audio_refs_json for date=%s", date)
             dc.audio_refs_json = []
             await session.commit()
         dc.feed_hash = feed_hash
         await session.commit()
 
         # 3. Selection (LLM preferred)
+        logger.info("Selection start items=%s", len(normalized))
         selection_obj = llm_selection_or_fallback(
             normalized,
             date=date.isoformat(),
@@ -87,6 +90,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
         await session.commit()
 
         # 5. Attribution
+        logger.info("Attribution start")
         attrib_obj = llm_attribution_or_fallback(date=date.isoformat(), language=user.preferred_language)
         attrib = attrib_obj.get("attribution", "Sources for today")
         dc.attribution_script = attrib
@@ -133,6 +137,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
         intro_title = f"Welcome for {date.strftime('%B %d')}"
         intro_track = await _find_shared_track(date, user.preferred_language, intro_title)
         if not intro_track:
+            logger.info("Intro: generating TTS title=%s", intro_title)
             if settings.offline_mode:
                 intro_track = {
                     "key": "01",
@@ -154,6 +159,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
                     raise RuntimeError("Failed to synthesize intro audio")
                 with open(save_path, "rb") as f:
                     audio_bytes = f.read()
+                logger.info("Intro: uploading/transcoding title=%s", intro_title)
                 trans = await upload_audio_and_get_transcode(user.yoto_access_token or "", audio_bytes, content_type="audio/mpeg", filename=os.path.basename(save_path))
                 info = trans.get("transcodedInfo") or {}
                 intro_track = {
@@ -173,10 +179,12 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
                 audio_refs = [intro_track] + [t for t in audio_refs if t.get("title") != intro_title]
             dc.audio_refs_json = audio_refs
             await session.commit()
+            logger.info("Intro: persisted sha=%s", intro_track.get("sha256"))
 
         # Stories pipeline: summarize -> tts -> transcode per item concurrently
         async def process_story(idx: int, item: Dict[str, Any]) -> None:
             key = f"{idx:02d}"
+            logger.info("Story[%s]: summarize start title=%s", key, (item.get("title") or "Story"))
             # Summarize (potentially blocking); run in thread
             summary: Dict[str, Any] = await asyncio.to_thread(
                 llm_summarize_one_or_fallback,
@@ -186,10 +194,10 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
                 age_min=user.age_min,
                 age_max=user.age_max,
             )
+            logger.info("Story[%s]: summarize complete words=%s", key, len((summary.get("script") or "").split()))
             # Persist summary incrementally
             async with db_lock:
                 summaries_acc.append(summary)
-                # Keep deterministic order by re-sorting on insertion order by key when present
                 dc.summaries_json = {"date": date.isoformat(), "language": user.preferred_language, "summaries": summaries_acc}
                 await session.commit()
 
@@ -197,6 +205,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
             async with db_lock:
                 existing = next((t for t in audio_refs if t.get("key") == key and t.get("sha256")), None)
             if existing:
+                logger.info("Story[%s]: already have sha, skipping TTS/upload", key)
                 return
 
             title = summary.get("title", "Story")
@@ -216,11 +225,13 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
                 if not settings.elevenlabs_api_key:
                     raise RuntimeError("ELEVENLABS_API_KEY is required for audio generation")
                 save_path, _ = path_for_mp3(date, title, idx, age_bucket=user.age_bucket, language=user.preferred_language)
+                logger.info("Story[%s]: TTS start title=%s", key, title)
                 await el_synthesize(script, save_path=save_path)
                 if not os.path.exists(save_path) or os.path.getsize(save_path) == 0:
                     raise RuntimeError("Failed to synthesize story audio")
                 with open(save_path, "rb") as f:
                     audio_bytes = f.read()
+                logger.info("Story[%s]: upload/transcode start", key)
                 trans = await upload_audio_and_get_transcode(user.yoto_access_token or "", audio_bytes, content_type="audio/mpeg", filename=os.path.basename(save_path))
                 info = trans.get("transcodedInfo") or {}
                 new_track = {
@@ -235,10 +246,8 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
                 }
             # Persist new track
             async with db_lock:
-                # Replace any placeholder for this key
                 audio_refs[:] = [t for t in audio_refs if t.get("key") != key]
                 audio_refs.append(new_track)
-                # Keep tracks ordered by key
                 def _key_ord(t: Dict[str, Any]) -> int:
                     try:
                         return int((t.get("key") or "00"))
@@ -247,6 +256,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
                 audio_refs.sort(key=_key_ord)
                 dc.audio_refs_json = audio_refs
                 await session.commit()
+                logger.info("Story[%s]: persisted sha=%s", key, new_track.get("sha256"))
 
         async def with_sem(coro):
             async with sem:
@@ -262,6 +272,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
         outro_title = "Sources for today"
         outro_track = await _find_shared_track(date, user.preferred_language, outro_title)
         if not outro_track:
+            logger.info("Outro: generating TTS title=%s", outro_title)
             if settings.offline_mode:
                 outro_track = {
                     "key": f"{len(audio_refs)+1:02d}",
@@ -283,6 +294,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
                     raise RuntimeError("Failed to synthesize outro audio")
                 with open(save_path, "rb") as f:
                     audio_bytes = f.read()
+                logger.info("Outro: upload/transcode start")
                 trans = await upload_audio_and_get_transcode(user.yoto_access_token or "", audio_bytes, content_type="audio/mpeg", filename=os.path.basename(save_path))
                 info = trans.get("transcodedInfo") or {}
                 outro_track = {
@@ -300,6 +312,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
             audio_refs.append(outro_track)
             dc.audio_refs_json = audio_refs
             await session.commit()
+            logger.info("Outro: persisted sha=%s", outro_track.get("sha256"))
 
         # Build tracks for today's chapter from SHAs
         tracks: List[Dict] = []
@@ -374,6 +387,9 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
         # Keep newest first
         chapters.sort(key=lambda c: c["key"], reverse=True)
         chapters = chapters[:7]
+        logger.info("Upsert: sending chapters=%s", len(chapters))
+        logger.info("Full chapters payload")
+        logger.info(chapters)
         result = await upsert_content(
             user.yoto_access_token or "",
             user.card_id,
@@ -385,6 +401,7 @@ async def build_for_user(session: AsyncSession, user: User, date: dt.date, *, re
         if result.get("cardId") and result.get("cardId") != user.card_id:
             user.card_id = result["cardId"]
             await session.commit()
+            logger.info("Upsert: cardId updated=%s", user.card_id)
 
         build.status = "success"
         await session.commit()
